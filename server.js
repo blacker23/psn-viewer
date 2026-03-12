@@ -3,7 +3,6 @@ import cors from "cors";
 import {
   exchangeNpssoForAccessCode,
   exchangeAccessCodeForAuthTokens,
-  exchangeNpssoForCode,
   getUserTrophyProfileSummary,
   getProfileFromAccountId,
   getProfileFromUserName,
@@ -46,172 +45,8 @@ function pickPurchasedDate(game) {
     null
   );
 }
-/**
- * Получает CAM session token через прямой запрос (по мануалу)
- */
-async function getCamSessionToken(npsso) {
-  console.log('=== ПОЛУЧЕНИЕ CAM TOKEN (ПО МАНУАЛУ) ===');
-  
-  const params = new URLSearchParams({
-    client_id: 'dfaa38ee-6f41-48c5-908c-2a338a183121',
-    response_type: 'token',
-    scope: 'oauth:manage_user_auth_sessions',
-    redirect_uri: 'com.scee.psxandroid://redirect'
-  });
 
-  const response = await fetch(`https://ca.account.sony.com/api/authz/v3/oauth/authorize?${params.toString()}`, {
-    method: 'GET',
-    headers: {
-      'Cookie': `npsso=${npsso}`,
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    },
-    redirect: 'manual'
-  });
-
-  const location = response.headers.get('location');
-  console.log('Location:', location);
-  
-  if (!location) {
-    throw new Error('Нет редиректа для CAM token');
-  }
-  
-  const match = location.match(/#access_token=([^&]+)/);
-  if (!match) {
-    throw new Error('Не удалось извлечь CAM token');
-  }
-  
-  return match[1];
-}
-
-/**
- * Получает accountUuid (по мануалу - Flow B)
- */
-async function getAccountUuid(npsso) {
-  console.log('=== ПОЛУЧЕНИЕ ACCOUNT UUID (ПО МАНУАЛУ) ===');
-  
-  // 1. Exchange NPSSO for code
-  const codeResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/authorize', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Cookie': `npsso=${npsso}`
-    },
-    body: new URLSearchParams({
-      client_id: 'ac8f2514-272d-4eae-8292-ad3daab49da9',
-      scope: 'psn:mobile.v2',
-      redirect_uri: 'com.playstation.PlayStationApp://redirect',
-      response_type: 'code'
-    })
-  });
-
-  console.log('Code Response Status:', codeResponse.status);
-  
-  if (!codeResponse.ok) {
-    const text = await codeResponse.text();
-    console.log('Code Response Error:', text);
-    throw new Error('Failed to get authorization code');
-  }
-
-  const codeData = await codeResponse.json();
-  console.log('Code Data received');
-  
-  // 2. Exchange code for tokens
-  const tokenResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': 'Basic YWM4ZjI1MTQtMjcyZC00ZWFlLTgyOTItYWQzZGFhYjQ5ZGE5OnBzcHJpbmNpcGFs'
-    },
-    body: new URLSearchParams({
-      code: codeData.code,
-      redirect_uri: 'com.playstation.PlayStationApp://redirect',
-      grant_type: 'authorization_code'
-    })
-  });
-
-  console.log('Token Response Status:', tokenResponse.status);
-  
-  if (!tokenResponse.ok) {
-    const text = await tokenResponse.text();
-    console.log('Token Response Error:', text);
-    throw new Error('Failed to exchange code for tokens');
-  }
-
-  const tokenData = await tokenResponse.json();
-  console.log('Token Data received');
-  
-  // 3. Get account info
-  const accountResponse = await fetch('https://accounts.api.playstation.com/v1/accounts/me', {
-    headers: {
-      'Authorization': `Bearer ${tokenData.access_token}`
-    }
-  });
-
-  if (!accountResponse.ok) {
-    throw new Error('Failed to get account info');
-  }
-
-  const accountData = await accountResponse.json();
-  console.log('Account UUID:', accountData.accountUuid);
-  
-  return accountData.accountUuid;
-}
-
-/**
- * Получает список устройств
- */
-async function getUserClients(npsso) {
-  try {
-    // Используем тот же метод для получения токена
-    const codeResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/authorize', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Cookie': `npsso=${npsso}`
-      },
-      body: new URLSearchParams({
-        client_id: 'ac8f2514-272d-4eae-8292-ad3daab49da9',
-        scope: 'psn:mobile.v2',
-        redirect_uri: 'com.playstation.PlayStationApp://redirect',
-        response_type: 'code'
-      })
-    });
-
-    if (!codeResponse.ok) {
-      return [];
-    }
-
-    const codeData = await codeResponse.json();
-    
-    const tokenResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': 'Basic YWM4ZjI1MTQtMjcyZC00ZWFlLTgyOTItYWQzZGFhYjQ5ZGE5OnBzcHJpbmNpcGFs'
-      },
-      body: new URLSearchParams({
-        code: codeData.code,
-        redirect_uri: 'com.playstation.PlayStationApp://redirect',
-        grant_type: 'authorization_code'
-      })
-    });
-
-    const tokenData = await tokenResponse.json();
-    
-    const clientsResponse = await fetch('https://cloudassistednavigation.api.playstation.com/v2/users/me/clients', {
-      headers: {
-        'Authorization': `Bearer ${tokenData.access_token}`
-      }
-    });
-
-    const clientsData = await clientsResponse.json();
-    return clientsData.clients || [];
-  } catch (e) {
-    console.log('Error fetching clients:', e.message);
-    return [];
-  }
-}
-
+// ✅ ОСНОВНОЙ ЭНДПОИНТ ДЛЯ ЗАГРУЗКИ ДАННЫХ
 app.post("/api/login", async (req, res) => {
   try {
     const { npsso } = req.body;
@@ -318,6 +153,7 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
+// ✅ НОВЫЙ ЭНДПОИНТ ДЛЯ ВЫХОДА СО ВСЕХ УСТРОЙСТВ
 app.post("/api/logout-all", async (req, res) => {
   try {
     const { npsso } = req.body;
@@ -328,11 +164,11 @@ app.post("/api/logout-all", async (req, res) => {
 
     console.log('🔄 Logging out from all devices...');
 
-    // Используем ТОЧНО такой же код как в /api/login
+    // ШАГ 1: Получаем access token (как в /api/login)
     const accessCode = await exchangeNpssoForAccessCode(String(npsso).trim());
     const authorization = await exchangeAccessCodeForAuthTokens(accessCode);
 
-    // Получаем accountId
+    // ШАГ 2: Получаем accountId из профиля
     const trophySummary = await getUserTrophyProfileSummary(authorization, "me");
     const accountId = trophySummary?.accountId;
     
@@ -340,23 +176,30 @@ app.post("/api/logout-all", async (req, res) => {
       throw new Error('Could not get accountId');
     }
 
-    // Получаем список устройств для статистики
+    console.log('Account ID:', accountId);
+
+    // ШАГ 3: Получаем список устройств для информации (опционально)
     let devicesCount = 0;
     try {
       const devices = await getAccountDevices(authorization);
       devicesCount = devices?.accountDevices?.length || 0;
+      console.log('Devices found:', devicesCount);
     } catch (e) {
-      console.log('Could not fetch devices');
+      console.log('Could not fetch devices count');
     }
 
-    // Отправляем DELETE запрос
+    // ШАГ 4: Отправляем DELETE запрос на выход
+    // Используем authorization.accessToken как CAM token
     const logoutResponse = await fetch(`https://ca.account.sony.com/api/v1/user/accounts/${accountId}/auth/sessions`, {
       method: 'DELETE',
       headers: {
         'Authorization': `Bearer ${authorization.accessToken}`,
-        'Accept': 'application/json'
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
       }
     });
+
+    console.log('Logout response status:', logoutResponse.status);
 
     if (logoutResponse.ok) {
       res.json({
@@ -365,9 +208,11 @@ app.post("/api/logout-all", async (req, res) => {
         devicesCount
       });
     } else {
+      const errorText = await logoutResponse.text();
+      console.log('Logout error:', errorText);
       res.status(logoutResponse.status).json({
         ok: false,
-        error: `Error ${logoutResponse.status}`
+        error: `Error ${logoutResponse.status}: ${errorText}`
       });
     }
 
@@ -379,52 +224,14 @@ app.post("/api/logout-all", async (req, res) => {
     });
   }
 });
-app.post("/api/debug-steps", async (req, res) => {
-  try {
-    const { npsso } = req.body;
-    const results = {};
 
-    // Шаг 1: Получение authorization code
-    try {
-      const codeResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/authorize', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Cookie': `npsso=${npsso}`
-        },
-        body: new URLSearchParams({
-          client_id: 'ac8f2514-272d-4eae-8292-ad3daab49da9',
-          scope: 'psn:mobile.v2',
-          redirect_uri: 'com.playstation.PlayStationApp://redirect',
-          response_type: 'code'
-        })
-      });
-      
-      results.step1 = {
-        status: codeResponse.status,
-        ok: codeResponse.ok
-      };
-      
-      if (codeResponse.ok) {
-        const data = await codeResponse.json();
-        results.step1.hasCode = !!data.code;
-      } else {
-        results.step1.error = await codeResponse.text();
-      }
-    } catch (e) {
-      results.step1 = { error: e.message };
-    }
+// ✅ ТЕСТОВЫЙ ЭНДПОИНТ
+app.get("/api/test", (req, res) => {
+  res.json({ ok: true, message: "Server is running" });
+});
 
-    // Шаг 2: Получение CAM token
-    try {
-      const camToken = await getCamSessionToken(npsso);
-      results.step2 = { ok: true, hasToken: !!camToken };
-    } catch (e) {
-      results.step2 = { error: e.message };
-    }
-
-    res.json(results);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`📝 Test endpoint: http://localhost:${PORT}/api/test`);
 });
