@@ -424,6 +424,50 @@ app.post("/api/debug/step1-cam-token", async (req, res) => {
   }
 });
 
+// Тестовый эндпоинт для получения информации о client_id
+app.post("/api/debug/client-info", async (req, res) => {
+  try {
+    const { npsso } = req.body;
+    
+    // Пробуем получить информацию о доступных client_id
+    const clientIds = [
+      'dfaa38ee-6f41-48c5-908c-2a338a183121',
+      'ac8f2514-272d-4eae-8292-ad3daab49da9'
+    ];
+
+    const results = [];
+
+    for (const clientId of clientIds) {
+      const params = new URLSearchParams({
+        client_id: clientId,
+        response_type: 'token',
+        scope: 'oauth:manage_user_auth_sessions psn:mobile.v2',
+        redirect_uri: 'com.playstation.PlayStationApp://redirect'
+      });
+
+      const response = await fetch(`https://ca.account.sony.com/api/authz/v3/oauth/authorize?${params.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Cookie': `npsso=${npsso}`,
+          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15'
+        },
+        redirect: 'manual'
+      });
+
+      results.push({
+        clientId,
+        status: response.status,
+        location: response.headers.get('location'),
+        error: response.status === 400 ? await response.text() : null
+      });
+    }
+
+    res.json(results);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ШАГ 2: Получение accountUuid (ИСПРАВЛЕНО - используем ваш работающий код)
 app.post("/api/debug/step2-account-uuid", async (req, res) => {
   console.log('🔵 Step 2: Account UUID request received');
