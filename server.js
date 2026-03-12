@@ -282,47 +282,113 @@ app.post("/api/logout-all", async (req, res) => {
 // API ЭНДПОИНТЫ ДЛЯ ПОШАГОВОЙ ОТЛАДКИ
 // ============================================
 
-// ШАГ 1: Получение CAM Token
+// ШАГ 1: Получение CAM Token (ИСПРАВЛЕНО)
 app.post("/api/debug/step1-cam-token", async (req, res) => {
+  console.log('🔵 Step 1: CAM Token request received');
   try {
     const { npsso } = req.body;
     
-    const params = new URLSearchParams({
-      client_id: 'dfaa38ee-6f41-48c5-908c-2a338a183121',
-      response_type: 'token',
-      scope: 'oauth:manage_user_auth_sessions',
-      redirect_uri: 'com.scee.psxandroid://redirect'
+    if (!npsso) {
+      return res.status(400).json({ success: false, error: "NPSSO required" });
+    }
+
+    // Пробуем разные варианты redirect_uri
+    const redirectUris = [
+      'com.scee.psxandroid://redirect',
+      'com.playstation.PlayStationApp://redirect',
+      'https://remote-play.dl.playstation.net/remote-play/redirect.html'
+    ];
+
+    const results = [];
+
+    for (const redirectUri of redirectUris) {
+      console.log(`Trying redirect_uri: ${redirectUri}`);
+      
+      const params = new URLSearchParams({
+        client_id: 'dfaa38ee-6f41-48c5-908c-2a338a183121',
+        response_type: 'token',
+        scope: 'oauth:manage_user_auth_sessions',
+        redirect_uri: redirectUri
+      });
+
+      const response = await fetch(`https://ca.account.sony.com/api/authz/v3/oauth/authorize?${params.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Cookie': `npsso=${npsso}`,
+          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15'
+        },
+        redirect: 'manual'
+      });
+
+      const location = response.headers.get('location');
+      
+      results.push({
+        redirectUri,
+        status: response.status,
+        hasLocation: !!location,
+        location: location ? location.substring(0, 100) : null
+      });
+
+      if (location) {
+        const tokenMatch = location.match(/#access_token=([^&]+)/);
+        if (tokenMatch) {
+          return res.json({
+            success: true,
+            status: response.status,
+            redirectUri: redirectUri,
+            token: tokenMatch[1]
+          });
+        }
+      }
+    }
+
+    // Если ни один не сработал
+    res.json({
+      success: false,
+      error: "No working redirect_uri found",
+      attempts: results
     });
 
-    const response = await fetch(`https://ca.account.sony.com/api/authz/v3/oauth/authorize?${params.toString()}`, {
-      method: 'GET',
-      headers: {
-        'Cookie': `npsso=${npsso}`,
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15'
-      },
-      redirect: 'manual'
-    });
+  } catch (e) {
+    console.error('Step 1 error:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
 
-    const location = response.headers.get('location');
+// ШАГ 2: Получение accountUuid (ИСПРАВЛЕНО - используем ваш работающий код)
+app.post("/api/debug/step2-account-uuid", async (req, res) => {
+  console.log('🔵 Step 2: Account UUID request received');
+  try {
+    const { npsso } = req.body;
     
-    if (!location) {
-      const text = await response.text();
+    // ИСПОЛЬЗУЕМ ВАШ РАБОТАЮЩИЙ КОД ИЗ /api/login
+    const accessCode = await exchangeNpssoForAccessCode(String(npsso).trim());
+    const authorization = await exchangeAccessCodeForAuthTokens(accessCode);
+    
+    // Получаем информацию об аккаунте через тот же метод
+    const response = await fetch('https://accounts.api.playstation.com/v1/accounts/me', {
+      headers: {
+        'Authorization': `Bearer ${authorization.accessToken}`
+      }
+    });
+
+    if (!response.ok) {
       return res.json({ 
         success: false, 
-        status: response.status,
-        body: text.substring(0, 500)
+        step: 'get_account',
+        status: response.status
       });
     }
 
-    const tokenMatch = location.match(/#access_token=([^&]+)/);
+    const accountData = await response.json();
     
     res.json({
-      success: !!tokenMatch,
-      status: response.status,
-      location: location,
-      token: tokenMatch ? tokenMatch[1] : null
+      success: true,
+      accountUuid: accountData.accountUuid,
+      accountId: accountData.accountId
     });
   } catch (e) {
+    console.error('Step 2 error:', e);
     res.status(500).json({ success: false, error: e.message });
   }
 });
