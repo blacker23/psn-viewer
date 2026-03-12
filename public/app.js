@@ -11,7 +11,7 @@ document.getElementById("load").onclick = async () => {
     return;
   }
 
-  profileEl.innerHTML = "Loading...";
+  profileEl.innerHTML = '<div class="card">Loading...</div>';
   gamesEl.innerHTML = "";
 
   const resp = await fetch("/api/login", {
@@ -23,13 +23,12 @@ document.getElementById("load").onclick = async () => {
   const data = await resp.json();
 
   if (!data.ok) {
-    profileEl.textContent = "";
+    profileEl.innerHTML = "";
     alert(data.error || "Login error");
     return;
   }
 
   authData = data.authorization;
-
   renderDashboard(data);
 };
 
@@ -44,30 +43,36 @@ function renderDashboard(data) {
   const friends = data.friends?.profiles || [];
 
   profileEl.innerHTML = `
-    <div style="border:1px solid #ccc; padding:16px; margin-bottom:16px;">
-      <h3>Profile</h3>
-      ${me.avatarUrl ? `<img src="${escapeHtml(me.avatarUrl)}" alt="avatar" width="80" style="border-radius:50%;"><br><br>` : ""}
-      <div><b>Online ID:</b> ${escapeHtml(me.onlineId || "-")}</div>
-      <div><b>Account ID:</b> ${escapeHtml(me.accountId || "-")}</div>
-      <div><b>About:</b> ${escapeHtml(me.aboutMe || "-")}</div>
-      <div><b>Languages:</b> ${escapeHtml((me.languages || []).join(", ") || "-")}</div>
-      <div><b>PS Plus:</b> ${me.isPlus ? "Yes" : "No"}</div>
-      <div><b>Verified:</b> ${me.isOfficiallyVerified ? "Yes" : "No"}</div>
-      <div><b>Share URL:</b> ${me.shareUrl ? `<a href="${escapeHtml(me.shareUrl)}" target="_blank">Open profile</a>` : "-"}</div>
+    <div class="grid">
+      <div class="card">
+        <h3>Profile</h3>
+        ${me.avatarUrl ? `<img src="${escapeHtml(me.avatarUrl)}" alt="avatar" width="80" style="border-radius:50%; margin-bottom:12px;">` : ""}
+        <div><b>Online ID:</b> ${escapeHtml(me.onlineId || "-")}</div>
+        <div><b>Account ID:</b> ${escapeHtml(me.accountId || "-")}</div>
+        <div><b>About:</b> ${escapeHtml(me.aboutMe || "-")}</div>
+        <div><b>Languages:</b> ${escapeHtml((me.languages || []).join(", ") || "-")}</div>
+        <div><b>PS Plus:</b> ${me.isPlus ? "Yes" : "No"}</div>
+        <div><b>Verified:</b> ${me.isOfficiallyVerified ? "Yes" : "No"}</div>
+        <div><b>Share URL:</b> ${
+          me.shareUrl
+            ? `<a href="${escapeHtml(me.shareUrl)}" target="_blank">Open profile</a>`
+            : "-"
+        }</div>
+      </div>
+
+      <div class="card">
+        <h3>Trophy Summary</h3>
+        <div><b>Level:</b> ${escapeHtml(summary.trophyLevel || "-")}</div>
+        <div><b>Progress:</b> ${escapeHtml(summary.progress ?? "-")}</div>
+        <div><b>Tier:</b> ${escapeHtml(summary.tier ?? "-")}</div>
+        <div><b>Bronze:</b> ${escapeHtml(summary.earnedTrophies?.bronze ?? 0)}</div>
+        <div><b>Silver:</b> ${escapeHtml(summary.earnedTrophies?.silver ?? 0)}</div>
+        <div><b>Gold:</b> ${escapeHtml(summary.earnedTrophies?.gold ?? 0)}</div>
+        <div><b>Platinum:</b> ${escapeHtml(summary.earnedTrophies?.platinum ?? 0)}</div>
+      </div>
     </div>
 
-    <div style="border:1px solid #ccc; padding:16px; margin-bottom:16px;">
-      <h3>Trophy Summary</h3>
-      <div><b>Level:</b> ${escapeHtml(summary.trophyLevel || "-")}</div>
-      <div><b>Progress:</b> ${summary.progress ?? "-"}</div>
-      <div><b>Tier:</b> ${summary.tier ?? "-"}</div>
-      <div><b>Bronze:</b> ${summary.earnedTrophies?.bronze ?? 0}</div>
-      <div><b>Silver:</b> ${summary.earnedTrophies?.silver ?? 0}</div>
-      <div><b>Gold:</b> ${summary.earnedTrophies?.gold ?? 0}</div>
-      <div><b>Platinum:</b> ${summary.earnedTrophies?.platinum ?? 0}</div>
-    </div>
-
-    <div style="border:1px solid #ccc; padding:16px; margin-bottom:16px;">
+    <div class="card">
       <h3>Presence</h3>
       <div><b>Status:</b> ${escapeHtml(presence.onlineStatus || "-")}</div>
       <div><b>Availability:</b> ${escapeHtml(presence.availability || "-")}</div>
@@ -85,7 +90,7 @@ function renderDashboard(data) {
     ${renderSimpleGames("Played Games", playedGames)}
     ${renderSimpleGames("Purchased Games", purchasedGames)}
     ${renderFriends("Friends", friends)}
-    <div id="trophiesBox" style="margin-top:20px;"></div>
+    <div id="trophiesBox"></div>
   `;
 
   attachTitleButtonEvents(titles);
@@ -93,12 +98,7 @@ function renderDashboard(data) {
 
 function renderGameButtons(title, items, clickable = false) {
   if (!items.length) {
-    return `
-      <div style="border:1px solid #ccc; padding:16px; margin-bottom:16px;">
-        <h3>${escapeHtml(title)}</h3>
-        <div>No data</div>
-      </div>
-    `;
+    return `<div class="card"><h3>${escapeHtml(title)}</h3><div>No data</div></div>`;
   }
 
   const rows = items.map((item, idx) => {
@@ -108,38 +108,23 @@ function renderGameButtons(title, items, clickable = false) {
 
     if (clickable) {
       return `
-        <div style="margin-bottom:8px;">
-          <button class="title-btn" data-index="${idx}">
-            ${escapeHtml(gameName)} ${platform ? `[${escapeHtml(platform)}]` : ""}
-            ${progress !== "" ? `- ${escapeHtml(String(progress))}%` : ""}
-          </button>
-        </div>
+        <button class="title-btn" data-index="${idx}">
+          ${escapeHtml(gameName)}
+          ${platform ? `[${escapeHtml(platform)}]` : ""}
+          ${progress !== "" ? ` - ${escapeHtml(String(progress))}%` : ""}
+        </button>
       `;
     }
 
-    return `
-      <div style="margin-bottom:8px;">
-        ${escapeHtml(gameName)} ${platform ? `[${escapeHtml(platform)}]` : ""}
-      </div>
-    `;
+    return `<div>${escapeHtml(gameName)}</div>`;
   }).join("");
 
-  return `
-    <div style="border:1px solid #ccc; padding:16px; margin-bottom:16px;">
-      <h3>${escapeHtml(title)}</h3>
-      ${rows}
-    </div>
-  `;
+  return `<div class="card"><h3>${escapeHtml(title)}</h3>${rows}</div>`;
 }
 
 function renderSimpleGames(title, items) {
   if (!items.length) {
-    return `
-      <div style="border:1px solid #ccc; padding:16px; margin-bottom:16px;">
-        <h3>${escapeHtml(title)}</h3>
-        <div>No data</div>
-      </div>
-    `;
+    return `<div class="card"><h3>${escapeHtml(title)}</h3><div>No data</div></div>`;
   }
 
   const rows = items.map((item) => {
@@ -165,7 +150,7 @@ function renderSimpleGames(title, items) {
       "";
 
     return `
-      <div style="display:flex; gap:12px; align-items:center; margin-bottom:12px;">
+      <div class="game-row">
         ${image ? `<img src="${escapeHtml(image)}" alt="" width="48">` : ""}
         <div>
           <div><b>${escapeHtml(gameName)}</b></div>
@@ -175,26 +160,16 @@ function renderSimpleGames(title, items) {
     `;
   }).join("");
 
-  return `
-    <div style="border:1px solid #ccc; padding:16px; margin-bottom:16px;">
-      <h3>${escapeHtml(title)}</h3>
-      ${rows}
-    </div>
-  `;
+  return `<div class="card"><h3>${escapeHtml(title)}</h3>${rows}</div>`;
 }
 
 function renderFriends(title, friends) {
   if (!friends.length) {
-    return `
-      <div style="border:1px solid #ccc; padding:16px; margin-bottom:16px;">
-        <h3>${escapeHtml(title)}</h3>
-        <div>No data</div>
-      </div>
-    `;
+    return `<div class="card"><h3>${escapeHtml(title)}</h3><div>No data</div></div>`;
   }
 
   const rows = friends.map((f) => `
-    <div style="display:flex; gap:12px; align-items:center; margin-bottom:12px;">
+    <div class="friend-row">
       ${f.avatarUrl ? `<img src="${escapeHtml(f.avatarUrl)}" alt="" width="42" style="border-radius:50%;">` : ""}
       <div>
         <div><b>${escapeHtml(f.onlineId || "Unknown")}</b></div>
@@ -203,12 +178,7 @@ function renderFriends(title, friends) {
     </div>
   `).join("");
 
-  return `
-    <div style="border:1px solid #ccc; padding:16px; margin-bottom:16px;">
-      <h3>${escapeHtml(title)}</h3>
-      ${rows}
-    </div>
-  `;
+  return `<div class="card"><h3>${escapeHtml(title)}</h3>${rows}</div>`;
 }
 
 function attachTitleButtonEvents(titles) {
@@ -223,7 +193,7 @@ function attachTitleButtonEvents(titles) {
 
 async function loadGame(title) {
   const trophiesBox = document.getElementById("trophiesBox");
-  trophiesBox.innerHTML = "<h3>Loading trophies...</h3>";
+  trophiesBox.innerHTML = '<div class="card"><h3>Loading trophies...</h3></div>';
 
   const resp = await fetch("/api/title", {
     method: "POST",
@@ -238,17 +208,17 @@ async function loadGame(title) {
   const data = await resp.json();
 
   if (!data.ok) {
-    trophiesBox.innerHTML = `<div style="color:red;">${escapeHtml(data.error || "Failed to load trophies")}</div>`;
+    trophiesBox.innerHTML = `<div class="card" style="color:red;">${escapeHtml(data.error || "Failed to load trophies")}</div>`;
     return;
   }
 
   const trophies = data.trophies || [];
 
   trophiesBox.innerHTML = `
-    <div style="border:1px solid #ccc; padding:16px; margin-bottom:16px;">
+    <div class="card">
       <h3>${escapeHtml(title.trophyTitleName || "Trophies")}</h3>
       ${trophies.map((t) => `
-        <div style="display:flex; gap:12px; align-items:flex-start; border-bottom:1px solid #eee; padding:8px 0;">
+        <div class="trophy-row">
           ${t.trophyIconUrl ? `<img src="${escapeHtml(t.trophyIconUrl)}" alt="" width="48">` : ""}
           <div>
             <div>
