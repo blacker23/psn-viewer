@@ -293,29 +293,29 @@ app.post("/api/logout-all", async (req, res) => {
   }
 });
 
-// Debug endpoint
-app.post("/api/debug-npsso", async (req, res) => {
+app.post("/api/debug-logout", async (req, res) => {
   try {
     const { npsso } = req.body;
     const results = {};
 
-    // Тест 1: Получение access code через psn-api
+    // Тест 1: Получение access code
     try {
       const accessCode = await exchangeNpssoForAccessCode(npsso);
-      results.psnApiAccessCode = { ok: true, length: accessCode.length };
+      results.accessCode = { ok: true, length: accessCode.length };
     } catch (e) {
-      results.psnApiAccessCode = { ok: false, error: e.message };
+      results.accessCode = { ok: false, error: e.message };
     }
 
-    // Тест 2: Получение CAM token
+    // Тест 2: Получение auth tokens
     try {
-      const camToken = await getCamSessionToken(npsso);
-      results.camToken = { ok: true, length: camToken.length };
+      const accessCode = await exchangeNpssoForAccessCode(npsso);
+      const auth = await exchangeAccessCodeForAuthTokens(accessCode);
+      results.authTokens = { ok: true, hasToken: !!auth.accessToken };
     } catch (e) {
-      results.camToken = { ok: false, error: e.message };
+      results.authTokens = { ok: false, error: e.message };
     }
 
-    // Тест 3: Получение Account UUID
+    // Тест 3: Получение account UUID
     try {
       const uuid = await getAccountUuid(npsso);
       results.accountUuid = { ok: true, uuid };
@@ -323,39 +323,6 @@ app.post("/api/debug-npsso", async (req, res) => {
       results.accountUuid = { ok: false, error: e.message };
     }
 
-    res.json(results);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
-
-
-app.post("/api/test-cam", async (req, res) => {
-  try {
-    const { npsso } = req.body;
-    const results = {};
-    
-    // Test mobile token
-    try {
-      const mobileToken = await getMobileAccessToken(npsso);
-      results.mobileToken = { ok: true, length: mobileToken.length };
-    } catch (e) {
-      results.mobileToken = { ok: false, error: e.message };
-    }
-    
-    // Test CAM token
-    try {
-      const camToken = await getCamSessionToken(npsso);
-      results.camToken = { ok: true, length: camToken.length };
-    } catch (e) {
-      results.camToken = { ok: false, error: e.message };
-    }
-    
     res.json(results);
   } catch (e) {
     res.status(500).json({ error: e.message });
