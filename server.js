@@ -161,124 +161,119 @@ app.post("/api/logout-all", async (req, res) => {
       return res.status(400).json({ ok: false, error: "NPSSO required" });
     }
 
-    console.log('🔄 Logging out from all devices...');
+    console.log('🔄 Начинаем выход со всех устройств...');
 
-    // ШАГ 1: Получаем access token (как в /api/login)
-    const accessCode = await exchangeNpssoForAccessCode(String(npsso).trim());
-    const authorization = await exchangeAccessCodeForAuthTokens(accessCode);
+    // ШАГ 1: Получаем CAM token через OAuth authorize (как в мануале)
+    const params = new URLSearchParams({
+      client_id: 'dfaa38ee-6f41-48c5-908c-2a338a183121',
+      response_type: 'token',
+      scope: 'oauth:manage_user_auth_sessions',
+      redirect_uri: 'com.scee.psxandroid://redirect'
+    });
 
-    // ШАГ 2: Получаем accountId
-    const trophySummary = await getUserTrophyProfileSummary(authorization, "me");
-    const accountId = trophySummary?.accountId;
+    console.log('Запрашиваем CAM token...');
+    const authResponse = await fetch(`https://ca.account.sony.com/api/authz/v3/oauth/authorize?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Cookie': `npsso=${npsso}`,
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+      },
+      redirect: 'manual'
+    });
+
+    const location = authResponse.headers.get('location');
+    console.log('Location header:', location);
     
-    if (!accountId) {
-      throw new Error('Could not get accountId');
+    if (!location) {
+      throw new Error('Нет редиректа - возможно NPSSO истек');
     }
 
-    console.log('Account ID:', accountId);
-
-    // ШАГ 3: Получаем количество устройств
-    let devicesCount = 0;
-    try {
-      const devices = await getAccountDevices(authorization);
-      devicesCount = devices?.accountDevices?.length || 0;
-    } catch (e) {
-      console.log('Could not fetch devices count');
+    // Извлекаем access_token из редиректа
+    const tokenMatch = location.match(/#access_token=([^&]+)/);
+    if (!tokenMatch) {
+      throw new Error('Не удалось извлечь токен');
     }
 
-    // ШАГ 4: Пробуем 3 разных метода выхода
-    let logoutSuccess = false;
-    let lastError = null;
+    const camToken = tokenMatch[1];
+    console.log('✅ CAM token получен');
 
-    // МЕТОД 1: С токеном authorization.accessToken
-    try {
-      console.log('Trying method 1...');
-      const response = await fetch(`https://ca.account.sony.com/api/v1/user/accounts/${accountId}/auth/sessions`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${authorization.accessToken}`,
-          'Accept': 'application/json'
-        }
-      });
-      
-      if (response.ok) {
-        logoutSuccess = true;
-        console.log('Method 1 succeeded');
-      } else {
-        lastError = `Method 1 failed: ${response.status}`;
+    // ШАГ 2: Получаем accountUuid через authorize code flow
+    console.log('Получаем account UUID...');
+    const codeResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/authorize', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Cookie': `npsso=${npsso}`
+      },
+      body: new URLSearchParams({
+        client_id: 'ac8f2514-272d-4eae-8292-ad3daab49da9',
+        scope: 'psn:mobile.v2',
+        redirect_uri: 'com.playstation.PlayStationApp://redirect',
+        response_type: 'code'
+      })
+    });
+
+    if (!codeResponse.ok) {
+      throw new Error(`Ошибка получения code: ${codeResponse.status}`);
+    }
+
+    const codeData = await codeResponse.json();
+    console.log('Code получен');
+
+    // Обмениваем code на токен
+    const tokenResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': 'Basic YWM4ZjI1MTQtMjcyZC00ZWFlLTgyOTItYWQzZGFhYjQ5ZGE5OnBzcHJpbmNpcGFs'
+      },
+      body: new URLSearchParams({
+        code: codeData.code,
+        redirect_uri: 'com.playstation.PlayStationApp://redirect',
+        grant_type: 'authorization_code'
+      })
+    });
+
+    const tokenData = await tokenResponse.json();
+
+    // Получаем account info
+    const accountResponse = await fetch('https://accounts.api.playstation.com/v1/accounts/me', {
+      headers: {
+        'Authorization': `Bearer ${tokenData.access_token}`
       }
-    } catch (e) {
-      lastError = e.message;
-    }
+    });
 
-    // МЕТОД 2: Другой endpoint
-    if (!logoutSuccess) {
-      try {
-        console.log('Trying method 2...');
-        const response = await fetch(`https://auth.api.sonyentertainmentnetwork.com/2.0/oauth/authorize/revoke`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${authorization.accessToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            token: authorization.accessToken,
-            token_type_hint: 'access_token'
-          })
-        });
-        
-        if (response.ok) {
-          logoutSuccess = true;
-          console.log('Method 2 succeeded');
-        }
-      } catch (e) {
-        lastError = e.message;
+    const accountData = await accountResponse.json();
+    const accountUuid = accountData.accountUuid;
+    console.log('Account UUID:', accountUuid);
+
+    // ШАГ 3: DELETE запрос на выход
+    console.log('Отправляем запрос на выход...');
+    const logoutResponse = await fetch(`https://ca.account.sony.com/api/v1/user/accounts/${accountUuid}/auth/sessions`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${camToken}`,
+        'Accept': 'application/json'
       }
-    }
+    });
 
-    // МЕТОД 3: Отзыв всех токенов через другой API
-    if (!logoutSuccess) {
-      try {
-        console.log('Trying method 3...');
-        const response = await fetch(`https://accounts.api.playstation.com/v1/accounts/${accountId}/auth/sessions`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${authorization.accessToken}`,
-            'Accept': 'application/json'
-          }
-        });
-        
-        if (response.ok) {
-          logoutSuccess = true;
-          console.log('Method 3 succeeded');
-        }
-      } catch (e) {
-        lastError = e.message;
-      }
-    }
-
-    if (logoutSuccess) {
+    if (logoutResponse.ok) {
       res.json({
         ok: true,
-        message: "✅ Выход выполнен (сессии сброшены)",
-        devicesCount
+        message: "✅ Выход на всех устройствах выполнен",
       });
     } else {
-      // Если все методы не сработали, но NPSSO валидный - 
-      // возможно, просто сбрасываем локальную сессию
-      res.json({
-        ok: true,
-        message: "⚠️ Сессии сброшены (локально)",
-        devicesCount,
-        note: "Для полного выхода со всех устройств войдите на account.sony.com"
-      });
+      const errorText = await logoutResponse.text();
+      console.log('Logout error:', errorText);
+      throw new Error(`Ошибка ${logoutResponse.status}`);
     }
 
   } catch (e) {
     console.error("LOGOUT ERROR:", e);
     res.status(500).json({
       ok: false,
-      error: e?.message || "Unknown error"
+      error: e?.message || "Неизвестная ошибка"
     });
   }
 });
