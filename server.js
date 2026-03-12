@@ -33,12 +33,10 @@ app.post("/api/login", async (req, res) => {
     res.json({
       ok: true,
       authorization,
-      profile: {
-        message: "Авторизация успешна"
-      },
       titles: titlesResponse?.trophyTitles ?? []
     });
   } catch (e) {
+    console.error("LOGIN ERROR:", e);
     res.status(500).json({
       ok: false,
       error: e?.message || "Unknown error"
@@ -65,7 +63,6 @@ app.post("/api/title", async (req, res) => {
     }
 
     const isPs5 = String(platform || "").toUpperCase().includes("PS5");
-
     const options = isPs5 ? {} : { npServiceName: "trophy" };
 
     const titleTrophiesResponse = await getTitleTrophies(
@@ -83,15 +80,13 @@ app.post("/api/title", async (req, res) => {
       options
     );
 
-    const trophies = titleTrophiesResponse?.trophies ?? [];
-    const earned = earnedTrophiesResponse?.trophies ?? [];
-
     res.json({
       ok: true,
-      trophies,
-      earned
+      trophies: titleTrophiesResponse?.trophies ?? [],
+      earned: earnedTrophiesResponse?.trophies ?? []
     });
   } catch (e) {
+    console.error("TITLE ERROR:", e);
     res.status(500).json({
       ok: false,
       error: e?.message || "Unknown error"
