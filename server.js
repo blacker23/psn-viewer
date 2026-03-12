@@ -326,28 +326,34 @@ app.post("/api/logout-all", async (req, res) => {
       return res.status(400).json({ ok: false, error: "NPSSO required" });
     }
 
-    console.log('=== ПРОЦЕСС ВЫХОДА (ПО МАНУАЛУ) ===');
-    
-    // Шаг 1: Получаем список устройств до выхода
-    console.log('Получаем список устройств...');
-    const clientsBefore = await getUserClients(npsso);
-    console.log('Устройств найдено:', clientsBefore.length);
-    
-    // Шаг 2: Параллельно получаем CAM token и accountUuid
-    console.log('Получаем CAM token...');
-    const camToken = await getCamSessionToken(npsso);
-    console.log('CAM token получен');
-    
-    console.log('Получаем Account UUID...');
-    const accountUuid = await getAccountUuid(npsso);
-    console.log('Account UUID:', accountUuid);
+    console.log('🔄 Logging out from all devices...');
 
-    // Шаг 3: DELETE запрос
-    console.log('Отправляем DELETE запрос...');
-    const logoutResponse = await fetch(`https://ca.account.sony.com/api/v1/user/accounts/${accountUuid}/auth/sessions`, {
+    // Используем ТОЧНО такой же код как в /api/login
+    const accessCode = await exchangeNpssoForAccessCode(String(npsso).trim());
+    const authorization = await exchangeAccessCodeForAuthTokens(accessCode);
+
+    // Получаем accountId
+    const trophySummary = await getUserTrophyProfileSummary(authorization, "me");
+    const accountId = trophySummary?.accountId;
+    
+    if (!accountId) {
+      throw new Error('Could not get accountId');
+    }
+
+    // Получаем список устройств для статистики
+    let devicesCount = 0;
+    try {
+      const devices = await getAccountDevices(authorization);
+      devicesCount = devices?.accountDevices?.length || 0;
+    } catch (e) {
+      console.log('Could not fetch devices');
+    }
+
+    // Отправляем DELETE запрос
+    const logoutResponse = await fetch(`https://ca.account.sony.com/api/v1/user/accounts/${accountId}/auth/sessions`, {
       method: 'DELETE',
       headers: {
-        'Authorization': `Bearer ${camToken}`,
+        'Authorization': `Bearer ${authorization.accessToken}`,
         'Accept': 'application/json'
       }
     });
@@ -355,14 +361,13 @@ app.post("/api/logout-all", async (req, res) => {
     if (logoutResponse.ok) {
       res.json({
         ok: true,
-        message: "✅ Выход на всех устройствах выполнен",
-        clientsBefore: clientsBefore.length
+        message: "✅ Successfully logged out from all devices",
+        devicesCount
       });
     } else {
-      const errorText = await logoutResponse.text();
       res.status(logoutResponse.status).json({
         ok: false,
-        error: `Ошибка ${logoutResponse.status}: ${errorText}`
+        error: `Error ${logoutResponse.status}`
       });
     }
 
@@ -370,11 +375,10 @@ app.post("/api/logout-all", async (req, res) => {
     console.error("LOGOUT ERROR:", e);
     res.status(500).json({
       ok: false,
-      error: e?.message || "Неизвестная ошибка"
+      error: e?.message || "Unknown error"
     });
   }
 });
-
 app.post("/api/debug-steps", async (req, res) => {
   try {
     const { npsso } = req.body;
