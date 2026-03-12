@@ -5,7 +5,6 @@ import {
   exchangeNpssoForAccessCode,
   exchangeAccessCodeForAuthTokens,
   getUserTitles,
-  getProfileFromAccountId,
   getTitleTrophies,
   getUserTrophiesEarnedForTitle
 } from "psn-api";
