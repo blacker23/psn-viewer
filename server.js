@@ -48,182 +48,39 @@ function pickPurchasedDate(game) {
 }
 
 /**
- * Получает CAM token через мобильный API
+ * Получает CAM token через прямой обмен NPSSO
  */
-async function getMobileAccessToken(npsso) {
-  console.log('=== ПОЛУЧЕНИЕ МОБИЛЬНОГО ACCESS TOKEN ===');
+async function getCamTokenFromNpsso(npsso) {
+  console.log('=== ПОЛУЧЕНИЕ CAM TOKEN ЧЕРЕЗ NPSSO ===');
   
-  // 1. Получаем authorization code
-  const codeResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/authorize', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Cookie': `npsso=${npsso}`,
-      'User-Agent': 'PlayStationApp/24.2.1 (iOS; iPhone13,3; iOS 15.0; Scale/3.00)'
-    },
-    body: new URLSearchParams({
-      client_id: 'ac8f2514-272d-4eae-8292-ad3daab49da9',
-      scope: 'psn:mobile.v2 psn:clientapps',
-      redirect_uri: 'com.playstation.PlayStationApp://redirect',
-      response_type: 'code'
-    })
-  });
-
-  console.log('Code Response Status:', codeResponse.status);
+  // 1. Сначала получаем access code через NPSSO (как в /api/login)
+  const accessCode = await exchangeNpssoForAccessCode(npsso);
+  console.log('Access code получен');
   
-  if (!codeResponse.ok) {
-    const text = await codeResponse.text();
-    console.log('Code Response Error:', text);
-    throw new Error('Failed to get authorization code');
-  }
-
-  const codeData = await codeResponse.json();
-  console.log('Code Data received:', Object.keys(codeData));
+  // 2. Получаем auth tokens
+  const authorization = await exchangeAccessCodeForAuthTokens(accessCode);
+  console.log('Auth tokens получены');
   
-  // 2. Обмениваем code на token
-  const tokenResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': 'Basic YWM4ZjI1MTQtMjcyZC00ZWFlLTgyOTItYWQzZGFhYjQ5ZGE5OnBzcHJpbmNpcGFs'
-    },
-    body: new URLSearchParams({
-      code: codeData.code,
-      redirect_uri: 'com.playstation.PlayStationApp://redirect',
-      grant_type: 'authorization_code'
-    })
-  });
-
-  console.log('Token Response Status:', tokenResponse.status);
-  
-  if (!tokenResponse.ok) {
-    const text = await tokenResponse.text();
-    console.log('Token Response Error:', text);
-    throw new Error('Failed to exchange code for token');
-  }
-
-  const tokenData = await tokenResponse.json();
-  console.log('Token Data received:', Object.keys(tokenData));
-  
-  return tokenData.access_token;
+  // 3. Используем этот токен как CAM token (он подходит для manage_user_auth_sessions)
+  return authorization.accessToken;
 }
 
 /**
- * Получает CAM session token через отдельный запрос
- */
-async function getCamSessionToken(npsso) {
-  console.log('=== ПОЛУЧЕНИЕ CAM SESSION TOKEN ===');
-  
-  // Сначала получаем мобильный access token
-  const mobileToken = await getMobileAccessToken(npsso);
-  
-  // Затем получаем CAM token
-  const params = new URLSearchParams({
-    client_id: 'dfaa38ee-6f41-48c5-908c-2a338a183121',
-    response_type: 'token',
-    scope: 'oauth:manage_user_auth_sessions',
-    redirect_uri: 'com.scee.psxandroid://redirect'
-  });
-
-  const response = await fetch(`https://ca.account.sony.com/api/authz/v3/oauth/authorize?${params.toString()}`, {
-    method: 'GET',
-    headers: {
-      'Authorization': `Bearer ${mobileToken}`,
-      'User-Agent': 'PlayStationApp/24.2.1 (iOS; iPhone13,3; iOS 15.0; Scale/3.00)',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-    },
-    redirect: 'manual'
-  });
-
-  console.log('CAM Response Status:', response.status);
-  
-  const location = response.headers.get('location');
-  console.log('CAM Location:', location);
-  
-  if (!location) {
-    throw new Error('No redirect for CAM token');
-  }
-  
-  const match = location.match(/#access_token=([^&]+)/);
-  if (!match) {
-    throw new Error('Could not extract CAM token from URL');
-  }
-  
-  return match[1];
-}
-
-/**
- * Альтернативный метод получения CAM token через code flow
- */
-async function getCamTokenAlternative(npsso) {
-  console.log('=== АЛЬТЕРНАТИВНЫЙ МЕТОД CAM TOKEN ===');
-  
-  // 1. Получаем authorization code
-  const codeResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/authorize', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Cookie': `npsso=${npsso}`,
-      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15'
-    },
-    body: new URLSearchParams({
-      client_id: 'dfaa38ee-6f41-48c5-908c-2a338a183121',
-      scope: 'oauth:manage_user_auth_sessions',
-      redirect_uri: 'com.scee.psxandroid://redirect',
-      response_type: 'code'
-    })
-  });
-
-  console.log('Code Response Status:', codeResponse.status);
-  
-  if (!codeResponse.ok) {
-    const text = await codeResponse.text();
-    console.log('Code Response Body:', text);
-    throw new Error('Не удалось получить authorization code');
-  }
-
-  const codeData = await codeResponse.json();
-  console.log('Code Data:', codeData);
-  
-  if (!codeData.code) {
-    throw new Error('Нет code в ответе');
-  }
-
-  // 2. Обмениваем code на token
-  const tokenResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': 'Basic ZGYwYTM4ZWUtNmY0MS00OGM1LTkwOGMtMmEzMzhhMTgzMTIxOm15c2VjcmV0'
-    },
-    body: new URLSearchParams({
-      code: codeData.code,
-      redirect_uri: 'com.scee.psxandroid://redirect',
-      grant_type: 'authorization_code'
-    })
-  });
-
-  console.log('Token Response Status:', tokenResponse.status);
-  
-  if (!tokenResponse.ok) {
-    const text = await tokenResponse.text();
-    console.log('Token Response Body:', text);
-    throw new Error('Не удалось обменять code на token');
-  }
-
-  const tokenData = await tokenResponse.json();
-  console.log('Token Data (keys):', Object.keys(tokenData));
-  
-  return tokenData.access_token;
-}
-
-/**
- * Получает accountUuid через мобильный API
+ * Получает accountUuid через профиль пользователя
  */
 async function getAccountUuid(npsso) {
-  // Используем существующую логику из psn-api
+  console.log('=== ПОЛУЧЕНИЕ ACCOUNT UUID ===');
+  
   const accessCode = await exchangeNpssoForAccessCode(npsso);
   const authorization = await exchangeAccessCodeForAuthTokens(accessCode);
+  
+  // Получаем трофеи чтобы получить accountId
+  const trophySummary = await getUserTrophyProfileSummary(authorization, "me");
+  const accountId = trophySummary?.accountId;
+  
+  if (!accountId) {
+    throw new Error('Не удалось получить accountId');
+  }
   
   // Получаем информацию об аккаунте
   const response = await fetch('https://accounts.api.playstation.com/v1/accounts/me', {
@@ -237,11 +94,14 @@ async function getAccountUuid(npsso) {
   }
 
   const accountData = await response.json();
-  return accountData.accountUuid;
+  console.log('Account data keys:', Object.keys(accountData));
+  
+  // Пробуем разные варианты получения UUID
+  return accountData.accountUuid || accountData.uuid || accountData.id || accountId;
 }
 
 /**
- * Получает список устройств (клиентов) аккаунта
+ * Получает список устройств
  */
 async function getUserClients(npsso) {
   try {
@@ -380,25 +240,25 @@ app.post("/api/logout-all", async (req, res) => {
       return res.status(400).json({ ok: false, error: "NPSSO required" });
     }
 
-    console.log('Starting logout process...');
+    console.log('=== НАЧАЛО ПРОЦЕССА ВЫХОДА ===');
     
-    // Get CAM token
-    console.log('Getting CAM token...');
-    const camToken = await getCamSessionToken(npsso);
-    console.log('CAM token obtained successfully');
+    // Получаем список устройств до выхода
+    console.log('Получаем список устройств...');
+    const clientsBefore = await getUserClients(npsso);
+    console.log('Устройств найдено:', clientsBefore.length);
     
-    // Get account UUID using existing method
-    console.log('Getting account UUID...');
+    // Получаем CAM token через NPSSO
+    console.log('Получаем CAM token...');
+    const camToken = await getCamTokenFromNpsso(npsso);
+    console.log('CAM token получен (первые 10 символов):', camToken.substring(0, 10) + '...');
+    
+    // Получаем Account UUID
+    console.log('Получаем Account UUID...');
     const accountUuid = await getAccountUuid(npsso);
     console.log('Account UUID:', accountUuid);
 
-    // Get devices before logout
-    console.log('Getting devices list...');
-    const clientsBefore = await getUserClients(npsso);
-    console.log('Devices found:', clientsBefore.length);
-
-    // Send DELETE request
-    console.log('Sending logout request...');
+    // Отправляем DELETE запрос
+    console.log('Отправляем DELETE запрос...');
     const logoutResponse = await fetch(`https://ca.account.sony.com/api/v1/user/accounts/${accountUuid}/auth/sessions`, {
       method: 'DELETE',
       headers: {
@@ -413,14 +273,14 @@ app.post("/api/logout-all", async (req, res) => {
     if (logoutResponse.ok) {
       res.json({
         ok: true,
-        message: "✅ Successfully logged out from all devices",
+        message: "✅ Выход на всех устройствах выполнен",
         clientsBefore: clientsBefore.length
       });
     } else {
       const errorText = await logoutResponse.text();
       res.status(logoutResponse.status).json({
         ok: false,
-        error: `Error ${logoutResponse.status}: ${errorText}`
+        error: `Ошибка ${logoutResponse.status}: ${errorText}`
       });
     }
 
@@ -428,7 +288,7 @@ app.post("/api/logout-all", async (req, res) => {
     console.error("LOGOUT ERROR:", e);
     res.status(500).json({
       ok: false,
-      error: e?.message || "Unknown error"
+      error: e?.message || "Неизвестная ошибка"
     });
   }
 });
