@@ -27,6 +27,49 @@ document.getElementById("load").onclick = async () => {
   renderDashboard(data);
 };
 
+document.getElementById("logoutAll").onclick = async () => {
+  const npsso = document.getElementById("npsso").value.trim();
+
+  if (!npsso) {
+    alert("Сначала вставьте NPSSO");
+    return;
+  }
+
+  if (!confirm("⚠️ Это действие завершит все активные сессии на всех устройствах (PS4, PS5, мобильное приложение, веб). Продолжить?")) {
+    return;
+  }
+
+  const btn = document.getElementById("logoutAll");
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Выход...";
+
+  try {
+    const resp = await fetch("/api/logout-all", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ npsso })
+    });
+
+    const data = await resp.json();
+
+    if (data.ok) {
+      alert(`✅ ${data.message}\nСессий завершено: ${data.devicesCount || 'N/A'}`);
+      document.getElementById("npsso").value = "";
+      if (contentEl.innerHTML !== '') {
+        contentEl.innerHTML = '<div class="card">Сессии сброшены. Вставьте новый NPSSO для продолжения.</div>';
+      }
+    } else {
+      alert(`❌ Ошибка: ${data.error || 'Неизвестная ошибка'}`);
+    }
+  } catch (error) {
+    alert(`❌ Ошибка сети: ${error.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+};
+
 function renderDashboard(data) {
   const p = data.profile || {};
   const devices = data.devices || [];
@@ -114,49 +157,3 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
-
-// Обработчик для кнопки выхода
-document.getElementById("logoutAll").onclick = async () => {
-  const npsso = document.getElementById("npsso").value.trim();
-
-  if (!npsso) {
-    alert("Сначала вставьте NPSSO");
-    return;
-  }
-
-  if (!confirm("⚠️ Это действие завершит все активные сессии на всех устройствах (PS4, PS5, мобильное приложение, веб). Продолжить?")) {
-    return;
-  }
-
-  const btn = document.getElementById("logoutAll");
-  const originalText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = "Выход...";
-
-  try {
-    const resp = await fetch("/api/logout-all", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ npsso })
-    });
-
-    const data = await resp.json();
-
-    if (data.ok) {
-      alert(`✅ ${data.message}\nСессий завершено: ${data.clientsBefore || 'N/A'}`);
-      // Очистим поле NPSSO, так как токен стал невалидным
-      document.getElementById("npsso").value = "";
-      // Можно также перезагрузить данные, если они были загружены
-      if (contentEl.innerHTML !== '') {
-        contentEl.innerHTML = '<div class="card">Сессии сброшены. Вставьте новый NPSSO для продолжения.</div>';
-      }
-    } else {
-      alert(`❌ Ошибка: ${data.error || 'Неизвестная ошибка'}`);
-    }
-  } catch (error) {
-    alert(`❌ Ошибка сети: ${error.message}`);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = originalText;
-  }
-};
