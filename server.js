@@ -1,16 +1,15 @@
-
 import express from "express";
 import cors from "cors";
 import {
   exchangeNpssoForAccessCode,
   exchangeAccessCodeForAuthTokens,
   getUserTitles,
-  getProfileFromAccountId,
   getTitleTrophies,
   getUserTrophiesEarnedForTitle
 } from "psn-api";
 
 const app = express();
+
 app.use(cors());
 app.use(express.json());
 app.use(express.static("public"));
@@ -18,22 +17,32 @@ app.use(express.static("public"));
 app.post("/api/login", async (req, res) => {
   try {
     const { npsso } = req.body;
-    if (!npsso) return res.status(400).json({ error: "NPSSO required" });
 
-    const accessCode = await exchangeNpssoForAccessCode(npsso);
+    if (!npsso || !String(npsso).trim()) {
+      return res.status(400).json({
+        ok: false,
+        error: "NPSSO required"
+      });
+    }
+
+    const accessCode = await exchangeNpssoForAccessCode(String(npsso).trim());
     const authorization = await exchangeAccessCodeForAuthTokens(accessCode);
 
-    const profile = await getProfileFromAccountId(authorization, "me");
-    const titles = await getUserTitles(authorization, "me");
+    const titlesResponse = await getUserTitles(authorization, "me");
 
     res.json({
       ok: true,
       authorization,
-      profile: profile.profile ?? profile,
-      titles: titles.trophyTitles ?? []
+      profile: {
+        message: "Авторизация успешна"
+      },
+      titles: titlesResponse?.trophyTitles ?? []
     });
   } catch (e) {
-    res.status(500).json({ ok:false, error: e?.message || "error" });
+    res.status(500).json({
+      ok: false,
+      error: e?.message || "Unknown error"
+    });
   }
 });
 
@@ -41,18 +50,32 @@ app.post("/api/title", async (req, res) => {
   try {
     const { authorization, npCommunicationId, platform } = req.body;
 
-    const options = {
-      npServiceName: String(platform || "").includes("PS5") ? undefined : "trophy"
-    };
+    if (!authorization?.accessToken) {
+      return res.status(400).json({
+        ok: false,
+        error: "authorization is required"
+      });
+    }
 
-    const titleTrophies = await getTitleTrophies(
+    if (!npCommunicationId) {
+      return res.status(400).json({
+        ok: false,
+        error: "npCommunicationId is required"
+      });
+    }
+
+    const isPs5 = String(platform || "").toUpperCase().includes("PS5");
+
+    const options = isPs5 ? {} : { npServiceName: "trophy" };
+
+    const titleTrophiesResponse = await getTitleTrophies(
       authorization,
       npCommunicationId,
       "all",
       options
     );
 
-    const earned = await getUserTrophiesEarnedForTitle(
+    const earnedTrophiesResponse = await getUserTrophiesEarnedForTitle(
       authorization,
       "me",
       npCommunicationId,
@@ -60,17 +83,24 @@ app.post("/api/title", async (req, res) => {
       options
     );
 
+    const trophies = titleTrophiesResponse?.trophies ?? [];
+    const earned = earnedTrophiesResponse?.trophies ?? [];
+
     res.json({
       ok: true,
-      trophies: titleTrophies.trophies ?? [],
-      earned: earned.trophies ?? []
+      trophies,
+      earned
     });
   } catch (e) {
-    res.status(500).json({ ok:false, error: e?.message || "error" });
+    res.status(500).json({
+      ok: false,
+      error: e?.message || "Unknown error"
+    });
   }
 });
 
 const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, () => {
-  console.log("Server running on port " + PORT);
+  console.log(`Server running on port ${PORT}`);
 });
