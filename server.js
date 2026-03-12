@@ -206,42 +206,31 @@ async function getCamSessionToken(npsso) {
   return match[1];
 }
 /**
- * Получает accountUuid через прямой запрос к API (исправлено!)
+ * Получает accountUuid через мобильный API
  */
 async function getAccountUuid(npsso) {
-  // 1. Сначала получаем authorization code через прямой запрос
-  const codeResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/authorize', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Cookie': `npsso=${npsso}`,
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    },
-    body: new URLSearchParams({
-      client_id: 'ac8f2514-272d-4eae-8292-ad3daab49da9', // ID для мобильного приложения
-      scope: 'psn:mobile.v2',
-      redirect_uri: 'com.playstation.PlayStationApp://redirect'
-    })
-  });
-
-  const codeData = await codeResponse.json();
-  if (!codeData.code) {
-    throw new Error('Не удалось получить authorization code');
+  // Используем уже существующую в вашем коде логику
+  const accessCode = await exchangeNpssoForAccessCode(npsso);
+  const authorization = await exchangeAccessCodeForAuthTokens(accessCode);
+  
+  // Получаем профиль пользователя
+  const trophySummary = await getUserTrophyProfileSummary(authorization, "me");
+  const accountId = trophySummary?.accountId;
+  
+  if (!accountId) {
+    throw new Error('Не удалось получить accountId');
   }
-
-  // 2. Обмениваем code на access token
-  const tokenResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/token', {
-    method: 'POST',
+  
+  // Получаем UUID через другой endpoint
+  const response = await fetch('https://accounts.api.playstation.com/v1/accounts/me', {
     headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': 'Basic YWM4ZjI1MTQtMjcyZC00ZWFlLTgyOTItYWQzZGFhYjQ5ZGE5OnBzcHJpbmNpcGFs', // фиксированный ключ
-    },
-    body: new URLSearchParams({
-      code: codeData.code,
-      redirect_uri: 'com.playstation.PlayStationApp://redirect',
-      grant_type: 'authorization_code'
-    })
+      'Authorization': `Bearer ${authorization.accessToken}`
+    }
   });
+
+  const accountData = await response.json();
+  return accountData.accountUuid;
+}
 
   const tokenData = await tokenResponse.json();
   
