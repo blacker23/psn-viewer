@@ -162,34 +162,49 @@ app.listen(PORT, () => {
 // --- Исправленные функции для выхода ---
 
 /**
- * Получает CAM session token (для DELETE запроса) - Flow A
+ * Получает CAM session token (для DELETE запроса) - Flow A (исправленная версия)
  */
 async function getCamSessionToken(npsso) {
   const params = new URLSearchParams({
     client_id: 'dfaa38ee-6f41-48c5-908c-2a338a183121',
     response_type: 'token',
     scope: 'oauth:manage_user_auth_sessions',
-    redirect_uri: 'com.scee.psxandroid://redirect'
+    redirect_uri: 'com.scee.psxandroid://redirect',
+    state: 'state'  // Добавляем state
   });
 
   const response = await fetch(`https://ca.account.sony.com/api/authz/v3/oauth/authorize?${params.toString()}`, {
     method: 'GET',
     headers: {
       'Cookie': `npsso=${npsso}`,
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Connection': 'keep-alive'
     },
     redirect: 'manual'
   });
 
+  console.log('CAM Token Response Status:', response.status);
+  console.log('CAM Token Response Headers:', Object.fromEntries(response.headers));
+  
   const location = response.headers.get('location');
-  if (!location) throw new Error('Нет редиректа для CAM token');
+  console.log('CAM Token Location:', location);
+  
+  if (!location) {
+    // Если нет редиректа, попробуем прочитать тело ответа
+    const text = await response.text();
+    console.log('CAM Token Response Body:', text.substring(0, 500));
+    throw new Error('Нет редиректа для CAM token. Статус: ' + response.status);
+  }
   
   const match = location.match(/#access_token=([^&]+)/);
-  if (!match) throw new Error('Не удалось извлечь CAM token');
+  if (!match) {
+    throw new Error('Не удалось извлечь CAM token из URL: ' + location);
+  }
   
   return match[1];
 }
-
 /**
  * Получает accountUuid через прямой запрос к API (исправлено!)
  */
