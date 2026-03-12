@@ -243,3 +243,14 @@ app.post("/api/logout-all", async (req, res) => {
     });
   }
 });
+
+// ✅ ТЕСТОВЫЙ ЭНДПОИНТ
+app.get("/api/test", (req, res) => {
+  res.json({ ok: true, message: "Server is running" });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`📝 Test endpoint: http://localhost:${PORT}/api/test`);
+});
