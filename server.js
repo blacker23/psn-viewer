@@ -48,71 +48,49 @@ function pickPurchasedDate(game) {
 }
 
 /**
- * Получает CAM session token (для DELETE запроса) - Flow A с диагностикой
+ * Получает CAM session token (для DELETE запроса) - исправленная версия
  */
 async function getCamSessionToken(npsso) {
   console.log('=== НАЧАЛО ПОЛУЧЕНИЯ CAM TOKEN ===');
-  console.log('NPSSO (первые 10 символов):', npsso.substring(0, 10) + '...');
   
+  // Используем параметры как в официальном приложении
   const params = new URLSearchParams({
     client_id: 'dfaa38ee-6f41-48c5-908c-2a338a183121',
     response_type: 'token',
-    scope: 'oauth:manage_user_auth_sessions',
-    redirect_uri: 'com.scee.psxandroid://redirect',
+    scope: 'psn:mobile.v2 psn:clientapps',
+    redirect_uri: 'com.playstation.PlayStationApp://redirect',
     state: 'state'
   });
 
-  const url = `https://ca.account.sony.com/api/authz/v3/oauth/authorize?${params.toString()}`;
-  console.log('Request URL:', url);
+  const response = await fetch(`https://ca.account.sony.com/api/authz/v3/oauth/authorize?${params.toString()}`, {
+    method: 'GET',
+    headers: {
+      'Cookie': `npsso=${npsso}`,
+      'User-Agent': 'PlayStationApp/24.2.1 (iOS; iPhone13,3; iOS 15.0; Scale/3.00)',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Connection': 'keep-alive'
+    },
+    redirect: 'manual'
+  });
 
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Cookie': `npsso=${npsso}`,
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile/15E148 Safari/604.1',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Connection': 'keep-alive'
-      },
-      redirect: 'manual'
-    });
-
-    console.log('Response Status:', response.status);
-    console.log('Response Headers:', Object.fromEntries(response.headers));
-    
-    const location = response.headers.get('location');
-    console.log('Location header:', location);
-    
-    if (!location) {
-      // Пробуем получить тело ответа для диагностики
-      const text = await response.text();
-      console.log('Response Body (первые 500 символов):', text.substring(0, 500));
-      
-      // Пробуем распарсить как JSON, если это возможно
-      try {
-        const json = JSON.parse(text);
-        console.log('Response JSON:', json);
-      } catch {
-        console.log('Ответ не в JSON формате');
-      }
-      
-      throw new Error(`Нет редиректа для CAM token. Статус: ${response.status}`);
-    }
-    
-    const match = location.match(/#access_token=([^&]+)/);
-    if (!match) {
-      throw new Error('Не удалось извлечь CAM token из URL: ' + location);
-    }
-    
-    console.log('CAM Token успешно получен (первые 10 символов):', match[1].substring(0, 10) + '...');
-    console.log('=== КОНЕЦ ПОЛУЧЕНИЯ CAM TOKEN ===');
-    
-    return match[1];
-  } catch (error) {
-    console.error('Ошибка в getCamSessionToken:', error);
-    throw error;
+  console.log('Response Status:', response.status);
+  
+  const location = response.headers.get('location');
+  console.log('Location header:', location);
+  
+  if (!location) {
+    const text = await response.text();
+    console.log('Response Body:', text);
+    throw new Error('Нет редиректа для CAM token');
   }
+  
+  const match = location.match(/#access_token=([^&]+)/);
+  if (!match) {
+    throw new Error('Не удалось извлечь CAM token из URL');
+  }
+  
+  return match[1];
 }
 
 
