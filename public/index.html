@@ -17,14 +17,42 @@
       border: 1px solid #ddd;
       padding: 16px;
       margin-bottom: 16px;
+      border-radius: 8px;
+    }
+    .topbar {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
     }
     .topbar input {
-      width: 720px;
-      max-width: 100%;
+      flex: 1;
+      min-width: 300px;
       padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
     }
     .topbar button {
       padding: 10px 16px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    #load {
+      background: #007bff;
+      color: white;
+    }
+    #logoutAll {
+      background: #dc3545;
+      color: white;
+    }
+    .topbar button:hover {
+      opacity: 0.9;
+    }
+    .topbar button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
     .row {
       display: flex;
@@ -50,7 +78,7 @@
     <h1>PSN Viewer</h1>
     <input id="npsso" placeholder="Вставь NPSSO" />
     <button id="load">Load</button>
-    <button id="logoutAll" style="margin-left: 10px; background-color: #dc3545; color: white;">Выйти на всех устройствах</button>
+    <button id="logoutAll">Выйти на всех устройствах</button>
   </div>
 
   <div id="content"></div>
