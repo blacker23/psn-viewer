@@ -5,14 +5,10 @@ import {
   exchangeAccessCodeForAuthTokens,
   getUserTrophyProfileSummary,
   getProfileFromAccountId,
+  getProfileFromUserName,
   getBasicPresence,
-  getProfileShareableLink,
-  getRecentlyPlayedGames,
-  getPurchasedGames,
-  getUserPlayedGames,
   getAccountDevices,
-  getUserBlockedAccountIds,
-  getUserFriendsRequests
+  getPurchasedGames
 } from "psn-api";
 
 const app = express();
@@ -23,7 +19,31 @@ app.use(express.static("public"));
 
 function pickAvatar(profile) {
   if (profile?.avatars?.length) return profile.avatars[0]?.url || null;
+  if (profile?.avatarUrls?.length) return profile.avatarUrls[0]?.avatarUrl || null;
   return null;
+}
+
+function pickDeviceActivationDate(device) {
+  return (
+    device.activationDate ||
+    device.activatedAt ||
+    device.activationTime ||
+    device.createdDateTime ||
+    device.registrationDate ||
+    device.lastActivatedDate ||
+    null
+  );
+}
+
+function pickPurchasedDate(game) {
+  return (
+    game.activeDate ||
+    game.purchaseDate ||
+    game.entitlementDate ||
+    game.createdDateTime ||
+    game.lastModifiedDate ||
+    null
+  );
 }
 
 app.post("/api/login", async (req, res) => {
@@ -31,33 +51,36 @@ app.post("/api/login", async (req, res) => {
     const { npsso } = req.body;
 
     if (!npsso || !String(npsso).trim()) {
-      return res.status(400).json({
-        ok: false,
-        error: "NPSSO required"
-      });
+      return res.status(400).json({ ok: false, error: "NPSSO required" });
     }
 
     const accessCode = await exchangeNpssoForAccessCode(String(npsso).trim());
     const authorization = await exchangeAccessCodeForAuthTokens(accessCode);
 
     const trophySummary = await getUserTrophyProfileSummary(authorization, "me");
-    const myAccountId = trophySummary?.accountId || null;
+    const accountId = trophySummary?.accountId || null;
 
+    let profileRaw = null;
     let profile = null;
+    let legacyProfile = null;
     let presence = null;
-    let shareable = null;
-    let playedGames = [];
-    let recentlyPlayed = [];
+    let devices = [];
     let purchasedGames = [];
-    let devices = null;
-    let blocked = null;
-    let friendRequests = null;
 
-    if (myAccountId) {
+    if (accountId) {
       try {
-        profile = await getProfileFromAccountId(authorization, myAccountId);
+        profileRaw = await getProfileFromAccountId(authorization, accountId);
+        profile = profileRaw?.profile ?? profileRaw ?? null;
       } catch (e) {
-        profile = { error: e?.message || "Profile unavailable" };
+        profile = null;
+      }
+    }
+
+    if (profile?.onlineId) {
+      try {
+        legacyProfile = await getProfileFromUserName(authorization, profile.onlineId);
+      } catch (e) {
+        legacyProfile = null;
       }
     }
 
@@ -68,89 +91,57 @@ app.post("/api/login", async (req, res) => {
     }
 
     try {
-      shareable = await getProfileShareableLink(authorization, "me");
+      const devicesResp = await getAccountDevices(authorization);
+      devices = (devicesResp?.accountDevices || []).map((d) => ({
+        raw: d,
+        deviceType: d.deviceType || d.platform || d.model || d.type || d.name || "Unknown",
+        deviceId: d.deviceId || d.id || d.serialNumber || d.systemId || null,
+        activationDate: pickDeviceActivationDate(d)
+      }));
     } catch (e) {
-      shareable = { error: e?.message || "Shareable link unavailable" };
+      devices = [];
     }
 
     try {
-      const playedGamesResponse = await getUserPlayedGames(authorization, "me");
-      playedGames =
-        playedGamesResponse?.titles ??
-        playedGamesResponse?.gameLibraryTitlesRetrieve?.games ??
-        [];
-    } catch (e) {
-      playedGames = [];
-    }
-
-    try {
-      const recentlyPlayedResponse = await getRecentlyPlayedGames(authorization, {
-        limit: 10,
-        categories: ["ps4_game", "ps5_native_game"]
-      });
-
-      recentlyPlayed =
-        recentlyPlayedResponse?.data?.gameLibraryTitlesRetrieve?.games ?? [];
-    } catch (e) {
-      recentlyPlayed = [];
-    }
-
-    try {
-      const purchasedGamesResponse = await getPurchasedGames(authorization, {
+      const purchasedResp = await getPurchasedGames(authorization, {
         platform: ["ps4", "ps5"],
-        size: 24,
+        size: 100,
         sortBy: "ACTIVE_DATE",
         sortDirection: "desc"
       });
 
-      purchasedGames =
-        purchasedGamesResponse?.data?.purchasedTitlesRetrieve?.games ?? [];
+      purchasedGames = (purchasedResp?.data?.purchasedTitlesRetrieve?.games || []).map((g) => ({
+        raw: g,
+        title: g.name || g.titleName || g.conceptName || "Unknown title",
+        platform: g.platform || g.category || "-",
+        imageUrl: g.imageUrl || g.conceptIconUrl || g.coverArtUrl || null,
+        purchaseDate: pickPurchasedDate(g)
+      }));
     } catch (e) {
       purchasedGames = [];
     }
 
-    try {
-      devices = await getAccountDevices(authorization);
-    } catch (e) {
-      devices = { error: e?.message || "Devices unavailable" };
-    }
-
-    try {
-      blocked = await getUserBlockedAccountIds(authorization);
-    } catch (e) {
-      blocked = { error: e?.message || "Blocked users unavailable" };
-    }
-
-    try {
-      friendRequests = await getUserFriendsRequests(authorization);
-    } catch (e) {
-      friendRequests = { error: e?.message || "Friend requests unavailable" };
-    }
-
-    const normalizedProfile = profile?.profile ?? profile ?? null;
-
     res.json({
       ok: true,
-      me: {
-        accountId: myAccountId,
-        onlineId: normalizedProfile?.onlineId || null,
-        aboutMe: normalizedProfile?.aboutMe || "",
-        languages: normalizedProfile?.languages || [],
-        isPlus: normalizedProfile?.isPlus || false,
-        isOfficiallyVerified: normalizedProfile?.isOfficiallyVerified || false,
-        isMe: normalizedProfile?.isMe || false,
-        avatarUrl: pickAvatar(normalizedProfile),
-        shareUrl: shareable?.shareUrl || null,
-        shareImageUrl: shareable?.shareImageUrl || null
+      profile: {
+        avatarUrl: pickAvatar(profile) || pickAvatar(legacyProfile?.profile),
+        onlineId: profile?.onlineId || legacyProfile?.profile?.onlineId || null,
+        accountId,
+        languages: profile?.languages || legacyProfile?.profile?.languagesUsed || [],
+        isPlus: profile?.isPlus ?? (legacyProfile?.profile?.plus === 1),
+        aboutMe: profile?.aboutMe || legacyProfile?.profile?.aboutMe || "",
+        firstName: legacyProfile?.profile?.personalDetail?.firstName || null,
+        lastName: legacyProfile?.profile?.personalDetail?.lastName || null
       },
-      trophySummary,
-      presence,
-      playedGames,
-      recentlyPlayed,
-      purchasedGames,
       devices,
-      blocked,
-      friendRequests
+      purchasedGames,
+      currentSession: {
+        onlineStatus: presence?.onlineStatus || null,
+        availability: presence?.availability || null,
+        platform: presence?.platform || presence?.primaryPlatformInfo?.platform || null,
+        lastOnlineDate: presence?.lastOnlineDate || presence?.primaryPlatformInfo?.lastOnlineDate || null,
+        currentGames: presence?.gameTitleInfoList || []
+      }
     });
   } catch (e) {
     console.error("LOGIN ERROR:", e);
@@ -162,7 +153,6 @@ app.post("/api/login", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
