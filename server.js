@@ -282,7 +282,7 @@ app.post("/api/logout-all", async (req, res) => {
 // API ЭНДПОИНТЫ ДЛЯ ПОШАГОВОЙ ОТЛАДКИ
 // ============================================
 
-// ШАГ 1: Получение CAM Token (ИСПРАВЛЕНО)
+// ШАГ 1: Получение CAM Token (РАСШИРЕННЫЙ ПОИСК)
 app.post("/api/debug/step1-cam-token", async (req, res) => {
   console.log('🔵 Step 1: CAM Token request received');
   try {
@@ -292,11 +292,20 @@ app.post("/api/debug/step1-cam-token", async (req, res) => {
       return res.status(400).json({ success: false, error: "NPSSO required" });
     }
 
-    // Пробуем разные варианты redirect_uri
+    // Расширенный список возможных redirect_uri
     const redirectUris = [
       'com.scee.psxandroid://redirect',
       'com.playstation.PlayStationApp://redirect',
-      'https://remote-play.dl.playstation.net/remote-play/redirect.html'
+      'com.sony.playstationmobile://redirect',
+      'com.scee.psxandroid://oauth2redirect',
+      'com.playstation.PlayStationApp://oauth2redirect',
+      'https://remote-play.dl.playstation.net/remote-play/redirect.html',
+      'https://my.account.sony.com/redirect',
+      'https://account.sony.com/redirect',
+      'sdkms://redirect',  // Для консолей
+      'psn://redirect',
+      'http://localhost:3000/callback',  // На случай если ожидает web
+      'https://localhost:3000/callback'
     ];
 
     const results = [];
@@ -315,38 +324,98 @@ app.post("/api/debug/step1-cam-token", async (req, res) => {
         method: 'GET',
         headers: {
           'Cookie': `npsso=${npsso}`,
+          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        },
+        redirect: 'manual'
+      });
+
+      const location = response.headers.get('location');
+      const status = response.status;
+      
+      // Читаем тело ответа для диагностики
+      let body = null;
+      if (!response.ok && response.status !== 302) {
+        try {
+          body = await response.text();
+          body = body.substring(0, 200);
+        } catch {
+          body = 'Could not read body';
+        }
+      }
+      
+      results.push({
+        redirectUri,
+        status,
+        hasLocation: !!location,
+        locationPreview: location ? location.substring(0, 100) + '...' : null,
+        bodyPreview: body
+      });
+
+      // Если нашли location с токеном - успех
+      if (location) {
+        const tokenMatch = location.match(/#access_token=([^&]+)/);
+        if (tokenMatch) {
+          return res.json({
+            success: true,
+            status,
+            workingRedirectUri: redirectUri,
+            token: tokenMatch[1],
+            fullLocation: location
+          });
+        }
+      }
+    }
+
+    // Если ни один не сработал, но может быть другой client_id?
+    // Пробуем альтернативный client_id
+    console.log('Trying alternative client_id...');
+    
+    const altClientIds = [
+      'ac8f2514-272d-4eae-8292-ad3daab49da9',  // mobile app
+      'b6e7e8c8-5b3e-4b8d-8f3c-3f3f3f3f3f3f',  // web app
+      '4e7e8c8-5b3e-4b8d-8f3c-3f3f3f3f3f3f'    // another
+    ];
+
+    for (const clientId of altClientIds) {
+      const params = new URLSearchParams({
+        client_id: clientId,
+        response_type: 'token',
+        scope: 'oauth:manage_user_auth_sessions',
+        redirect_uri: 'com.playstation.PlayStationApp://redirect'
+      });
+
+      const response = await fetch(`https://ca.account.sony.com/api/authz/v3/oauth/authorize?${params.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Cookie': `npsso=${npsso}`,
           'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15'
         },
         redirect: 'manual'
       });
 
       const location = response.headers.get('location');
-      
-      results.push({
-        redirectUri,
-        status: response.status,
-        hasLocation: !!location,
-        location: location ? location.substring(0, 100) : null
-      });
-
       if (location) {
         const tokenMatch = location.match(/#access_token=([^&]+)/);
         if (tokenMatch) {
           return res.json({
             success: true,
             status: response.status,
-            redirectUri: redirectUri,
-            token: tokenMatch[1]
+            workingRedirectUri: 'com.playstation.PlayStationApp://redirect',
+            workingClientId: clientId,
+            token: tokenMatch[1],
+            fullLocation: location
           });
         }
       }
     }
 
-    // Если ни один не сработал
+    // Отправляем все попытки для анализа
     res.json({
       success: false,
       error: "No working redirect_uri found",
-      attempts: results
+      attempts: results,
+      message: "Проверьте консоль сервера для детального лога"
     });
 
   } catch (e) {
