@@ -1,7 +1,4 @@
-let authData = null;
-
-const profileEl = document.getElementById("profile");
-const gamesEl = document.getElementById("games");
+const contentEl = document.getElementById("content");
 
 document.getElementById("load").onclick = async () => {
   const npsso = document.getElementById("npsso").value.trim();
@@ -11,8 +8,7 @@ document.getElementById("load").onclick = async () => {
     return;
   }
 
-  profileEl.innerHTML = '<div class="card">Loading...</div>';
-  gamesEl.innerHTML = "";
+  contentEl.innerHTML = '<div class="card">Loading...</div>';
 
   const resp = await fetch("/api/login", {
     method: "POST",
@@ -23,12 +19,11 @@ document.getElementById("load").onclick = async () => {
   const data = await resp.json();
 
   if (!data.ok) {
-    profileEl.innerHTML = "";
+    contentEl.innerHTML = "";
     alert(data.error || "Login error");
     return;
   }
 
-  authData = data.authorization;
   renderDashboard(data);
 };
 
@@ -36,13 +31,32 @@ function renderDashboard(data) {
   const me = data.me || {};
   const summary = data.trophySummary || {};
   const presence = data.presence || {};
-  const titles = data.titles || [];
-  const playedGames = data.playedGames || [];
   const recentlyPlayed = data.recentlyPlayed || [];
+  const playedGames = data.playedGames || [];
   const purchasedGames = data.purchasedGames || [];
-  const friends = data.friends?.profiles || [];
 
-  profileEl.innerHTML = `
+  const deviceList =
+    data.devices?.accountDevices ||
+    data.devices?.devices ||
+    data.devices?.activatedDevices ||
+    [];
+
+  const blockedList =
+    data.blocked?.blockedUsers ||
+    data.blocked?.accountIds ||
+    data.blocked?.users ||
+    data.blocked?.blocks ||
+    data.blocked?.blockedAccountIds ||
+    [];
+
+  const friendRequestsList =
+    data.friendRequests?.friendRequests ||
+    data.friendRequests?.accountIds ||
+    data.friendRequests?.requests ||
+    data.friendRequests?.users ||
+    [];
+
+  contentEl.innerHTML = `
     <div class="grid">
       <div class="card">
         <h3>Profile</h3>
@@ -54,72 +68,40 @@ function renderDashboard(data) {
         <div><b>PS Plus:</b> ${me.isPlus ? "Yes" : "No"}</div>
         <div><b>Verified:</b> ${me.isOfficiallyVerified ? "Yes" : "No"}</div>
         <div><b>Share URL:</b> ${
-          me.shareUrl
-            ? `<a href="${escapeHtml(me.shareUrl)}" target="_blank">Open profile</a>`
-            : "-"
+          me.shareUrl ? `<a href="${escapeHtml(me.shareUrl)}" target="_blank">Open profile</a>` : "-"
         }</div>
       </div>
 
       <div class="card">
-        <h3>Trophy Summary</h3>
-        <div><b>Level:</b> ${escapeHtml(summary.trophyLevel || "-")}</div>
-        <div><b>Progress:</b> ${escapeHtml(summary.progress ?? "-")}</div>
-        <div><b>Tier:</b> ${escapeHtml(summary.tier ?? "-")}</div>
-        <div><b>Bronze:</b> ${escapeHtml(summary.earnedTrophies?.bronze ?? 0)}</div>
-        <div><b>Silver:</b> ${escapeHtml(summary.earnedTrophies?.silver ?? 0)}</div>
-        <div><b>Gold:</b> ${escapeHtml(summary.earnedTrophies?.gold ?? 0)}</div>
-        <div><b>Platinum:</b> ${escapeHtml(summary.earnedTrophies?.platinum ?? 0)}</div>
+        <h3>Presence</h3>
+        <div><b>Status:</b> ${escapeHtml(presence.onlineStatus || "-")}</div>
+        <div><b>Availability:</b> ${escapeHtml(presence.availability || "-")}</div>
+        <div><b>Platform:</b> ${escapeHtml(presence.platform || presence.primaryPlatformInfo?.platform || "-")}</div>
+        <div><b>Last online:</b> ${escapeHtml(presence.lastOnlineDate || presence.primaryPlatformInfo?.lastOnlineDate || "-")}</div>
+        <div><b>Current game:</b> ${escapeHtml(
+          presence.gameTitleInfoList?.map((g) => g.titleName).join(", ") || "-"
+        )}</div>
       </div>
     </div>
 
     <div class="card">
-      <h3>Presence</h3>
-      <div><b>Status:</b> ${escapeHtml(presence.onlineStatus || "-")}</div>
-      <div><b>Availability:</b> ${escapeHtml(presence.availability || "-")}</div>
-      <div><b>Platform:</b> ${escapeHtml(presence.platform || presence.primaryPlatformInfo?.platform || "-")}</div>
-      <div><b>Last online:</b> ${escapeHtml(presence.lastOnlineDate || presence.primaryPlatformInfo?.lastOnlineDate || "-")}</div>
-      <div><b>Current game:</b> ${escapeHtml(
-        presence.gameTitleInfoList?.map((g) => g.titleName).join(", ") || "-"
-      )}</div>
+      <h3>Trophy Summary</h3>
+      <div><b>Level:</b> ${escapeHtml(summary.trophyLevel || "-")}</div>
+      <div><b>Progress:</b> ${escapeHtml(summary.progress ?? "-")}</div>
+      <div><b>Tier:</b> ${escapeHtml(summary.tier ?? "-")}</div>
+      <div><b>Bronze:</b> ${escapeHtml(summary.earnedTrophies?.bronze ?? 0)}</div>
+      <div><b>Silver:</b> ${escapeHtml(summary.earnedTrophies?.silver ?? 0)}</div>
+      <div><b>Gold:</b> ${escapeHtml(summary.earnedTrophies?.gold ?? 0)}</div>
+      <div><b>Platinum:</b> ${escapeHtml(summary.earnedTrophies?.platinum ?? 0)}</div>
     </div>
-  `;
 
-  gamesEl.innerHTML = `
-    ${renderGameButtons("Trophy Titles", titles, true)}
     ${renderSimpleGames("Recently Played", recentlyPlayed)}
     ${renderSimpleGames("Played Games", playedGames)}
     ${renderSimpleGames("Purchased Games", purchasedGames)}
-    ${renderFriends("Friends", friends)}
-    <div id="trophiesBox"></div>
+    ${renderDevices("Devices", deviceList, data.devices)}
+    ${renderIdList("Blocked Users", blockedList, data.blocked)}
+    ${renderIdList("Friend Requests", friendRequestsList, data.friendRequests)}
   `;
-
-  attachTitleButtonEvents(titles);
-}
-
-function renderGameButtons(title, items, clickable = false) {
-  if (!items.length) {
-    return `<div class="card"><h3>${escapeHtml(title)}</h3><div>No data</div></div>`;
-  }
-
-  const rows = items.map((item, idx) => {
-    const gameName = item.trophyTitleName || item.name || item.titleName || "Unknown title";
-    const platform = item.trophyTitlePlatform || item.platform || item.category || "-";
-    const progress = item.progress ?? item.titleProgress ?? "";
-
-    if (clickable) {
-      return `
-        <button class="title-btn" data-index="${idx}">
-          ${escapeHtml(gameName)}
-          ${platform ? `[${escapeHtml(platform)}]` : ""}
-          ${progress !== "" ? ` - ${escapeHtml(String(progress))}%` : ""}
-        </button>
-      `;
-    }
-
-    return `<div>${escapeHtml(gameName)}</div>`;
-  }).join("");
-
-  return `<div class="card"><h3>${escapeHtml(title)}</h3>${rows}</div>`;
 }
 
 function renderSimpleGames(title, items) {
@@ -150,7 +132,7 @@ function renderSimpleGames(title, items) {
       "";
 
     return `
-      <div class="game-row">
+      <div class="row">
         ${image ? `<img src="${escapeHtml(image)}" alt="" width="48">` : ""}
         <div>
           <div><b>${escapeHtml(gameName)}</b></div>
@@ -163,78 +145,88 @@ function renderSimpleGames(title, items) {
   return `<div class="card"><h3>${escapeHtml(title)}</h3>${rows}</div>`;
 }
 
-function renderFriends(title, friends) {
-  if (!friends.length) {
-    return `<div class="card"><h3>${escapeHtml(title)}</h3><div>No data</div></div>`;
+function renderDevices(title, items, raw) {
+  if (!items.length) {
+    return `
+      <div class="card">
+        <h3>${escapeHtml(title)}</h3>
+        <div>No data</div>
+        ${raw?.error ? `<div style="color:red; margin-top:8px;">${escapeHtml(raw.error)}</div>` : ""}
+      </div>
+    `;
   }
 
-  const rows = friends.map((f) => `
-    <div class="friend-row">
-      ${f.avatarUrl ? `<img src="${escapeHtml(f.avatarUrl)}" alt="" width="42" style="border-radius:50%;">` : ""}
-      <div>
-        <div><b>${escapeHtml(f.onlineId || "Unknown")}</b></div>
-        <div>${escapeHtml(f.aboutMe || "")}</div>
+  const rows = items.map((item) => {
+    const type =
+      item.deviceType ||
+      item.platform ||
+      item.model ||
+      item.type ||
+      item.name ||
+      "Unknown device";
+
+    const deviceId =
+      item.deviceId ||
+      item.id ||
+      item.serialNumber ||
+      item.systemId ||
+      "-";
+
+    const activatedAt =
+      item.activationDate ||
+      item.activatedAt ||
+      item.activationTime ||
+      item.createdDateTime ||
+      item.registrationDate ||
+      "-";
+
+    const extra = Object.entries(item || {})
+      .slice(0, 8)
+      .map(([k, v]) => `<div><b>${escapeHtml(k)}:</b> ${escapeHtml(stringifyValue(v))}</div>`)
+      .join("");
+
+    return `
+      <div class="row">
+        <div>
+          <div><b>${escapeHtml(type)}</b></div>
+          <div><b>Device ID:</b> ${escapeHtml(deviceId)}</div>
+          <div><b>Activation date:</b> ${escapeHtml(activatedAt)}</div>
+          ${extra}
+        </div>
       </div>
-    </div>
-  `).join("");
+    `;
+  }).join("");
 
   return `<div class="card"><h3>${escapeHtml(title)}</h3>${rows}</div>`;
 }
 
-function attachTitleButtonEvents(titles) {
-  document.querySelectorAll(".title-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const idx = Number(btn.dataset.index);
-      const title = titles[idx];
-      await loadGame(title);
-    });
-  });
-}
-
-async function loadGame(title) {
-  const trophiesBox = document.getElementById("trophiesBox");
-  trophiesBox.innerHTML = '<div class="card"><h3>Loading trophies...</h3></div>';
-
-  const resp = await fetch("/api/title", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      authorization: authData,
-      npCommunicationId: title.npCommunicationId,
-      platform: title.trophyTitlePlatform
-    })
-  });
-
-  const data = await resp.json();
-
-  if (!data.ok) {
-    trophiesBox.innerHTML = `<div class="card" style="color:red;">${escapeHtml(data.error || "Failed to load trophies")}</div>`;
-    return;
+function renderIdList(title, items, raw) {
+  if (!items.length) {
+    return `
+      <div class="card">
+        <h3>${escapeHtml(title)}</h3>
+        <div>No data</div>
+        ${raw?.error ? `<div style="color:red; margin-top:8px;">${escapeHtml(raw.error)}</div>` : ""}
+      </div>
+    `;
   }
 
-  const trophies = data.trophies || [];
+  const rows = items.map((item) => {
+    const value =
+      typeof item === "object"
+        ? stringifyValue(item)
+        : String(item);
 
-  trophiesBox.innerHTML = `
-    <div class="card">
-      <h3>${escapeHtml(title.trophyTitleName || "Trophies")}</h3>
-      ${trophies.map((t) => `
-        <div class="trophy-row">
-          ${t.trophyIconUrl ? `<img src="${escapeHtml(t.trophyIconUrl)}" alt="" width="48">` : ""}
-          <div>
-            <div>
-              ${t.earned ? "✅" : "⬜"}
-              <b>${escapeHtml(t.trophyName || "Unnamed trophy")}</b>
-              (${escapeHtml(t.trophyType || "-")})
-            </div>
-            <div>${escapeHtml(t.trophyDetail || "")}</div>
-            <div>Rarity: ${escapeHtml(String(t.trophyRare ?? "-"))}</div>
-            <div>Earned rate: ${escapeHtml(String(t.trophyEarnedRate ?? "-"))}</div>
-            <div>Earned at: ${escapeHtml(t.earnedDateTime || "-")}</div>
-          </div>
-        </div>
-      `).join("")}
-    </div>
-  `;
+    return `<div class="row"><div>${escapeHtml(value)}</div></div>`;
+  }).join("");
+
+  return `<div class="card"><h3>${escapeHtml(title)}</h3>${rows}</div>`;
+}
+
+function stringifyValue(v) {
+  if (v == null) return "-";
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
 }
 
 function escapeHtml(value) {
