@@ -50,6 +50,28 @@ async function loadGame(title){
 
   const data = await resp.json();
 
-  console.log(data);
-  alert("Trophies loaded. Check console.");
+  const games = document.getElementById("games");
+
+  const list = document.createElement("div");
+
+  list.innerHTML = "<h3>Trophies</h3>";
+
+  data.trophies.forEach(t => {
+
+    const earned = data.earned.find(e => e.trophyId === t.trophyId);
+
+    const row = document.createElement("div");
+
+    row.style.padding = "6px";
+
+    row.innerHTML =
+      (earned ? "✅ " : "⬜ ") +
+      "<b>" + t.trophyName + "</b>" +
+      " (" + t.trophyType + ")";
+
+    list.appendChild(row);
+
+  });
+
+  games.appendChild(list);
 }
