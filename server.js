@@ -115,6 +115,72 @@ async function getCamSessionToken(npsso) {
   }
 }
 
+
+/**
+ * Альтернативный метод получения CAM token через code flow
+ */
+async function getCamTokenAlternative(npsso) {
+  console.log('=== АЛЬТЕРНАТИВНЫЙ МЕТОД CAM TOKEN ===');
+  
+  // 1. Получаем authorization code
+  const codeResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/authorize', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': `npsso=${npsso}`,
+      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15'
+    },
+    body: new URLSearchParams({
+      client_id: 'dfaa38ee-6f41-48c5-908c-2a338a183121',
+      scope: 'oauth:manage_user_auth_sessions',
+      redirect_uri: 'com.scee.psxandroid://redirect',
+      response_type: 'code'
+    })
+  });
+
+  console.log('Code Response Status:', codeResponse.status);
+  
+  if (!codeResponse.ok) {
+    const text = await codeResponse.text();
+    console.log('Code Response Body:', text);
+    throw new Error('Не удалось получить authorization code');
+  }
+
+  const codeData = await codeResponse.json();
+  console.log('Code Data:', codeData);
+  
+  if (!codeData.code) {
+    throw new Error('Нет code в ответе');
+  }
+
+  // 2. Обмениваем code на token
+  const tokenResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': 'Basic ZGYwYTM4ZWUtNmY0MS00OGM1LTkwOGMtMmEzMzhhMTgzMTIxOm15c2VjcmV0'
+    },
+    body: new URLSearchParams({
+      code: codeData.code,
+      redirect_uri: 'com.scee.psxandroid://redirect',
+      grant_type: 'authorization_code'
+    })
+  });
+
+  console.log('Token Response Status:', tokenResponse.status);
+  
+  if (!tokenResponse.ok) {
+    const text = await tokenResponse.text();
+    console.log('Token Response Body:', text);
+    throw new Error('Не удалось обменять code на token');
+  }
+
+  const tokenData = await tokenResponse.json();
+  console.log('Token Data (keys):', Object.keys(tokenData));
+  
+  return tokenData.access_token;
+}
+
 /**
  * Получает accountUuid через мобильный API
  */
@@ -278,22 +344,39 @@ app.post("/api/logout-all", async (req, res) => {
       return res.status(400).json({ ok: false, error: "NPSSO required" });
     }
 
-    console.log('Начинаем процесс выхода...');
+    console.log('=== НАЧАЛО ПРОЦЕССА ВЫХОДА ===');
+    console.log('NPSSO (первые 10 символов):', npsso.substring(0, 10) + '...');
     
     // Получаем список устройств
+    console.log('Получаем список устройств...');
     const clientsBefore = await getUserClients(npsso);
     console.log('Устройств найдено:', clientsBefore.length);
     
-    // Получаем CAM token и accountUuid
-    console.log('Получаем CAM token...');
-    const camToken = await getCamSessionToken(npsso);
-    console.log('CAM token получен');
+    // Пробуем получить CAM token основным методом
+    let camToken;
+    try {
+      console.log('Пробуем основной метод получения CAM token...');
+      camToken = await getCamSessionToken(npsso);
+    } catch (mainMethodError) {
+      console.log('Основной метод не сработал:', mainMethodError.message);
+      console.log('Пробуем альтернативный метод...');
+      try {
+        camToken = await getCamTokenAlternative(npsso);
+      } catch (altMethodError) {
+        console.error('Альтернативный метод тоже не сработал:', altMethodError);
+        throw new Error('Не удалось получить CAM token ни одним из методов');
+      }
+    }
     
+    console.log('CAM token успешно получен');
+    
+    // Получаем Account UUID
     console.log('Получаем Account UUID...');
     const accountUuid = await getAccountUuid(npsso);
     console.log('Account UUID:', accountUuid);
 
     // Отправляем DELETE запрос
+    console.log('Отправляем DELETE запрос...');
     const logoutResponse = await fetch(`https://ca.account.sony.com/api/v1/user/accounts/${accountUuid}/auth/sessions`, {
       method: 'DELETE',
       headers: {
@@ -303,23 +386,30 @@ app.post("/api/logout-all", async (req, res) => {
       }
     });
 
+    console.log('Logout Response Status:', logoutResponse.status);
+    
+    const responseText = await logoutResponse.text();
+    console.log('Logout Response Body:', responseText);
+
     if (logoutResponse.ok) {
+      console.log('=== ВЫХОД УСПЕШНО ВЫПОЛНЕН ===');
       res.json({
         ok: true,
         message: "✅ Выход на всех устройствах выполнен",
         clientsBefore: clientsBefore.length
       });
     } else {
-      const errorText = await logoutResponse.text();
+      console.log('=== ОШИБКА ПРИ ВЫХОДЕ ===');
       res.status(logoutResponse.status).json({
         ok: false,
-        error: `Ошибка ${logoutResponse.status}: ${errorText}`,
+        error: `Ошибка ${logoutResponse.status}: ${responseText}`,
         http_code: logoutResponse.status
       });
     }
 
   } catch (e) {
-    console.error("LOGOUT ALL ERROR:", e);
+    console.error("=== КРИТИЧЕСКАЯ ОШИБКА ВЫХОДА ===");
+    console.error(e);
     res.status(500).json({
       ok: false,
       error: e?.message || "Неизвестная ошибка"
