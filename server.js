@@ -278,20 +278,15 @@ app.post("/api/logout-all", async (req, res) => {
   }
 });
 
-// ТЕСТОВЫЙ ЭНДПОИНТ ДЛЯ ПОШАГОВОЙ ДИАГНОСТИКИ
-app.post("/api/test-logout-steps", async (req, res) => {
-  const { npsso } = req.body;
-  const results = {};
+// ============================================
+// API ЭНДПОИНТЫ ДЛЯ ПОШАГОВОЙ ОТЛАДКИ
+// ============================================
 
-  if (!npsso) {
-    return res.status(400).json({ error: "NPSSO required" });
-  }
-
-  // ------------------------------------------------------------
-  // ШАГ 2 - Flow A: Получение CAM token (для DELETE запроса)
-  // ------------------------------------------------------------
+// ШАГ 1: Получение CAM Token
+app.post("/api/debug/step1-cam-token", async (req, res) => {
   try {
-    console.log("\n=== ТЕСТ: Flow A (CAM Token) ===");
+    const { npsso } = req.body;
+    
     const params = new URLSearchParams({
       client_id: 'dfaa38ee-6f41-48c5-908c-2a338a183121',
       response_type: 'token',
@@ -299,51 +294,45 @@ app.post("/api/test-logout-steps", async (req, res) => {
       redirect_uri: 'com.scee.psxandroid://redirect'
     });
 
-    const url = `https://ca.account.sony.com/api/authz/v3/oauth/authorize?${params.toString()}`;
-    console.log('Request URL:', url);
-
-    const response = await fetch(url, {
+    const response = await fetch(`https://ca.account.sony.com/api/authz/v3/oauth/authorize?${params.toString()}`, {
       method: 'GET',
       headers: {
         'Cookie': `npsso=${npsso}`,
-        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15'
       },
       redirect: 'manual'
     });
 
-    results.flowA = {
-      status: response.status,
-      headers: Object.fromEntries(response.headers)
-    };
-
     const location = response.headers.get('location');
-    if (location) {
-      results.flowA.location = location;
-      const tokenMatch = location.match(/#access_token=([^&]+)/);
-      if (tokenMatch) {
-        results.flowA.camToken = tokenMatch[1].substring(0, 20) + '...'; // Показываем только начало
-        results.flowA.success = true;
-      } else {
-        results.flowA.error = 'Токен не найден в location';
-      }
-    } else {
-      // Если нет редиректа, читаем тело ответа для диагностики
-      const text = await response.text();
-      results.flowA.body = text.substring(0, 300);
-      results.flowA.error = 'Нет location header';
-    }
-  } catch (e) {
-    results.flowA = { error: e.message };
-  }
-
-  // ------------------------------------------------------------
-  // ШАГ 2 - Flow B: Получение accountUuid
-  // ------------------------------------------------------------
-  try {
-    console.log("\n=== ТЕСТ: Flow B (accountUuid) ===");
     
-    // 2.1: Обмен NPSSO на authorization code
+    if (!location) {
+      const text = await response.text();
+      return res.json({ 
+        success: false, 
+        status: response.status,
+        body: text.substring(0, 500)
+      });
+    }
+
+    const tokenMatch = location.match(/#access_token=([^&]+)/);
+    
+    res.json({
+      success: !!tokenMatch,
+      status: response.status,
+      location: location,
+      token: tokenMatch ? tokenMatch[1] : null
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ШАГ 2: Получение accountUuid
+app.post("/api/debug/step2-account-uuid", async (req, res) => {
+  try {
+    const { npsso } = req.body;
+    
+    // Получаем code
     const codeResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/authorize', {
       method: 'POST',
       headers: {
@@ -357,64 +346,78 @@ app.post("/api/test-logout-steps", async (req, res) => {
         response_type: 'code'
       })
     });
-
-    results.flowB = {
-      codeStatus: codeResponse.status
-    };
 
     if (!codeResponse.ok) {
-      results.flowB.codeError = await codeResponse.text();
-    } else {
-      const codeData = await codeResponse.json();
-      results.flowB.hasCode = !!codeData.code;
-      
-      if (codeData.code) {
-        // 2.2: Обмен code на токены
-        const tokenResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/token', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': 'Basic YWM4ZjI1MTQtMjcyZC00ZWFlLTgyOTItYWQzZGFhYjQ5ZGE5OnBzcHJpbmNpcGFs'
-          },
-          body: new URLSearchParams({
-            code: codeData.code,
-            redirect_uri: 'com.playstation.PlayStationApp://redirect',
-            grant_type: 'authorization_code'
-          })
-        });
-
-        results.flowB.tokenStatus = tokenResponse.status;
-        
-        if (tokenResponse.ok) {
-          const tokenData = await tokenResponse.json();
-          results.flowB.hasAccessToken = !!tokenData.access_token;
-          
-          // 2.3: Получение информации об аккаунте
-          const accountResponse = await fetch('https://accounts.api.playstation.com/v1/accounts/me', {
-            headers: {
-              'Authorization': `Bearer ${tokenData.access_token}`
-            }
-          });
-
-          if (accountResponse.ok) {
-            const accountData = await accountResponse.json();
-            results.flowB.accountUuid = accountData.accountUuid;
-            results.flowB.success = true;
-          }
-        }
-      }
+      const text = await codeResponse.text();
+      return res.json({ 
+        success: false, 
+        step: 'get_code',
+        status: codeResponse.status,
+        error: text
+      });
     }
-  } catch (e) {
-    results.flowB = { error: e.message };
-  }
 
-  // ------------------------------------------------------------
-  // ШАГ 3: Получение списка клиентов
-  // ------------------------------------------------------------
-  try {
-    console.log("\n=== ТЕСТ: Шаг 3 (Список устройств) ===");
+    const codeData = await codeResponse.json();
     
-    // Используем тот же метод что и в Flow B для получения токена
+    // Обмениваем на токен
+    const tokenResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': 'Basic YWM4ZjI1MTQtMjcyZC00ZWFlLTgyOTItYWQzZGFhYjQ5ZGE5OnBzcHJpbmNpcGFs'
+      },
+      body: new URLSearchParams({
+        code: codeData.code,
+        redirect_uri: 'com.playstation.PlayStationApp://redirect',
+        grant_type: 'authorization_code'
+      })
+    });
+
+    if (!tokenResponse.ok) {
+      const text = await tokenResponse.text();
+      return res.json({ 
+        success: false, 
+        step: 'exchange_token',
+        status: tokenResponse.status,
+        error: text
+      });
+    }
+
+    const tokenData = await tokenResponse.json();
+    
+    // Получаем информацию об аккаунте
+    const accountResponse = await fetch('https://accounts.api.playstation.com/v1/accounts/me', {
+      headers: {
+        'Authorization': `Bearer ${tokenData.access_token}`
+      }
+    });
+
+    if (!accountResponse.ok) {
+      return res.json({ 
+        success: false, 
+        step: 'get_account',
+        status: accountResponse.status
+      });
+    }
+
+    const accountData = await accountResponse.json();
+    
+    res.json({
+      success: true,
+      accountUuid: accountData.accountUuid,
+      accountId: accountData.accountId
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ШАГ 3: Получение списка клиентов
+app.post("/api/debug/step3-clients", async (req, res) => {
+  try {
+    const { npsso } = req.body;
+    
+    // Получаем code
     const codeResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/authorize', {
       method: 'POST',
       headers: {
@@ -429,50 +432,70 @@ app.post("/api/test-logout-steps", async (req, res) => {
       })
     });
 
-    if (codeResponse.ok) {
-      const codeData = await codeResponse.json();
-      
-      const tokenResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Authorization': 'Basic YWM4ZjI1MTQtMjcyZC00ZWFlLTgyOTItYWQzZGFhYjQ5ZGE5OnBzcHJpbmNpcGFs'
-        },
-        body: new URLSearchParams({
-          code: codeData.code,
-          redirect_uri: 'com.playstation.PlayStationApp://redirect',
-          grant_type: 'authorization_code'
-        })
-      });
-
-      if (tokenResponse.ok) {
-        const tokenData = await tokenResponse.json();
-        
-        const clientsResponse = await fetch('https://cloudassistednavigation.api.playstation.com/v2/users/me/clients', {
-          headers: {
-            'Authorization': `Bearer ${tokenData.access_token}`
-          }
-        });
-
-        if (clientsResponse.ok) {
-          const clientsData = await clientsResponse.json();
-          results.step3 = {
-            success: true,
-            clientsCount: clientsData.clients?.length || 0,
-            clients: clientsData.clients?.map(c => ({
-              type: c.type,
-              lastOnline: c.lastOnlineDate
-            }))
-          };
-        }
-      }
+    if (!codeResponse.ok) {
+      return res.json({ success: false, error: 'Failed to get code' });
     }
-  } catch (e) {
-    results.step3 = { error: e.message };
-  }
 
-  // Отправляем собранные результаты
-  res.json(results);
+    const codeData = await codeResponse.json();
+    
+    // Обмениваем на токен
+    const tokenResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': 'Basic YWM4ZjI1MTQtMjcyZC00ZWFlLTgyOTItYWQzZGFhYjQ5ZGE5OnBzcHJpbmNpcGFs'
+      },
+      body: new URLSearchParams({
+        code: codeData.code,
+        redirect_uri: 'com.playstation.PlayStationApp://redirect',
+        grant_type: 'authorization_code'
+      })
+    });
+
+    const tokenData = await tokenResponse.json();
+    
+    // Получаем список клиентов
+    const clientsResponse = await fetch('https://cloudassistednavigation.api.playstation.com/v2/users/me/clients', {
+      headers: {
+        'Authorization': `Bearer ${tokenData.access_token}`
+      }
+    });
+
+    const clientsData = await clientsResponse.json();
+    
+    res.json({
+      success: true,
+      count: clientsData.clients?.length || 0,
+      clients: clientsData.clients || []
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ШАГ 4: DELETE запрос
+app.post("/api/debug/step4-logout", async (req, res) => {
+  try {
+    const { camToken, accountUuid } = req.body;
+    
+    const response = await fetch(`https://ca.account.sony.com/api/v1/user/accounts/${accountUuid}/auth/sessions`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${camToken}`,
+        'Accept': 'application/json'
+      }
+    });
+
+    const text = await response.text();
+    
+    res.json({
+      success: response.ok,
+      status: response.status,
+      response: text
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
 });
 
 // ✅ ТЕСТОВЫЙ ЭНДПОИНТ
