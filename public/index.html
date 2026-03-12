@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PSN Viewer</title>
+  <title>PSN Viewer + Отладка выхода</title>
   <style>
     body {
       font-family: Arial, sans-serif;
-      max-width: 1100px;
+      max-width: 1200px;
       margin: 0 auto;
       padding: 20px;
       background: #f5f5f5;
@@ -24,6 +24,7 @@
       gap: 10px;
       align-items: center;
       flex-wrap: wrap;
+      margin-bottom: 20px;
     }
     .topbar input {
       flex: 1;
@@ -39,21 +40,42 @@
       cursor: pointer;
       font-size: 14px;
     }
-    #load {
-      background: #007bff;
+    #load { background: #007bff; color: white; }
+    #logoutAll { background: #dc3545; color: white; }
+    
+    .debug-panel {
+      background: #f8f9fa;
+      border: 2px solid #6c757d;
+      margin-top: 20px;
+    }
+    .debug-buttons {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    .debug-btn {
+      background: #6c757d;
       color: white;
+      padding: 8px 12px;
+      font-size: 13px;
     }
-    #logoutAll {
-      background: #dc3545;
-      color: white;
+    .debug-btn.step1 { background: #17a2b8; } // CAM token
+    .debug-btn.step2 { background: #28a745; } // UUID
+    .debug-btn.step3 { background: #ffc107; color: black; } // Клиенты
+    .debug-btn.step4 { background: #dc3545; } // DELETE
+    .debug-output {
+      background: #272822;
+      color: #f8f8f2;
+      padding: 15px;
+      border-radius: 4px;
+      font-family: monospace;
+      white-space: pre-wrap;
+      max-height: 400px;
+      overflow: auto;
     }
-    .topbar button:hover {
-      opacity: 0.9;
-    }
-    .topbar button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
+    .success { color: #28a745; font-weight: bold; }
+    .error { color: #dc3545; font-weight: bold; }
     .row {
       display: flex;
       gap: 12px;
@@ -67,9 +89,7 @@
       gap: 16px;
     }
     @media (max-width: 900px) {
-      .grid {
-        grid-template-columns: 1fr;
-      }
+      .grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -77,8 +97,23 @@
   <div class="card topbar">
     <h1>PSN Viewer</h1>
     <input id="npsso" placeholder="Вставь NPSSO" />
-    <button id="load">Load</button>
+    <button id="load">Load Data</button>
     <button id="logoutAll">Выйти на всех устройствах</button>
+  </div>
+
+  <!-- ПАНЕЛЬ ПОШАГОВОЙ ОТЛАДКИ -->
+  <div class="card debug-panel">
+    <h3>🔧 Пошаговая отладка выхода (по мануалу)</h3>
+    <div class="debug-buttons">
+      <button class="debug-btn step1" id="step1Btn">1️⃣ Получить CAM Token</button>
+      <button class="debug-btn step2" id="step2Btn">2️⃣ Получить accountUuid</button>
+      <button class="debug-btn step3" id="step3Btn">3️⃣ Список клиентов</button>
+      <button class="debug-btn step4" id="step4Btn">4️⃣ DELETE запрос (выход)</button>
+      <button class="debug-btn" id="clearDebugBtn">🗑️ Очистить</button>
+    </div>
+    <div id="debugOutput" class="debug-output">
+      Нажмите кнопку для выполнения шага...
+    </div>
   </div>
 
   <div id="content"></div>
