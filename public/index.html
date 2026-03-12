@@ -12,78 +12,38 @@
       padding: 20px;
       background: #f5f5f5;
     }
-
-    h1, h2, h3 {
-      margin-top: 0;
-    }
-
-    .topbar {
+    h1, h2, h3 { margin-top: 0; }
+    .topbar, .card {
       background: #fff;
-      padding: 16px;
       border: 1px solid #ddd;
-      margin-bottom: 20px;
+      padding: 16px;
+      margin-bottom: 16px;
     }
-
     .topbar input {
       width: 700px;
       max-width: 100%;
       padding: 10px;
       font-size: 14px;
     }
-
     .topbar button {
       padding: 10px 16px;
       font-size: 14px;
       cursor: pointer;
     }
-
-    .card {
-      background: #fff;
-      border: 1px solid #ddd;
-      padding: 16px;
-      margin-bottom: 16px;
-    }
-
     .grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 16px;
     }
-
-    .game-row, .friend-row, .trophy-row {
+    .row {
       display: flex;
       gap: 12px;
       align-items: flex-start;
       padding: 10px 0;
       border-bottom: 1px solid #eee;
     }
-
-    .game-row img, .friend-row img, .trophy-row img {
-      flex-shrink: 0;
-    }
-
-    .title-btn {
-      width: 100%;
-      text-align: left;
-      padding: 10px 12px;
-      cursor: pointer;
-      border: 1px solid #ddd;
-      background: #fafafa;
-      margin-bottom: 8px;
-    }
-
-    .title-btn:hover {
-      background: #f0f0f0;
-    }
-
-    #trophiesBox {
-      margin-top: 20px;
-    }
-
     @media (max-width: 900px) {
-      .grid {
-        grid-template-columns: 1fr;
-      }
+      .grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -94,9 +54,8 @@
     <button id="load">Load</button>
   </div>
 
-  <div id="profile"></div>
-  <div id="games"></div>
+  <div id="content"></div>
 
-  <script src="app.js?v=2"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>
