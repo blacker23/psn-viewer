@@ -153,7 +153,6 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
-// ✅ НОВЫЙ ЭНДПОИНТ ДЛЯ ВЫХОДА СО ВСЕХ УСТРОЙСТВ
 app.post("/api/logout-all", async (req, res) => {
   try {
     const { npsso } = req.body;
@@ -164,11 +163,33 @@ app.post("/api/logout-all", async (req, res) => {
 
     console.log('🔄 Logging out from all devices...');
 
-    // ШАГ 1: Получаем access token (как в /api/login)
+    // ШАГ 1: Получаем access token с нужным scope через прямой запрос
+    const tokenResponse = await fetch('https://ca.account.sony.com/api/authz/v3/oauth/authorize', {
+      method: 'GET',
+      headers: {
+        'Cookie': `npsso=${npsso}`,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      },
+      redirect: 'manual'
+    });
+
+    // Извлекаем токен из редиректа
+    const location = tokenResponse.headers.get('location');
+    if (!location) {
+      throw new Error('Не удалось получить токен авторизации');
+    }
+
+    const tokenMatch = location.match(/#access_token=([^&]+)/);
+    if (!tokenMatch) {
+      throw new Error('Не удалось извлечь токен из URL');
+    }
+
+    const accessToken = tokenMatch[1];
+    console.log('✅ Токен с нужным scope получен');
+
+    // ШАГ 2: Получаем accountId через существующий метод (он работает)
     const accessCode = await exchangeNpssoForAccessCode(String(npsso).trim());
     const authorization = await exchangeAccessCodeForAuthTokens(accessCode);
-
-    // ШАГ 2: Получаем accountId из профиля
     const trophySummary = await getUserTrophyProfileSummary(authorization, "me");
     const accountId = trophySummary?.accountId;
     
@@ -178,22 +199,20 @@ app.post("/api/logout-all", async (req, res) => {
 
     console.log('Account ID:', accountId);
 
-    // ШАГ 3: Получаем список устройств для информации (опционально)
+    // ШАГ 3: Получаем список устройств для информации
     let devicesCount = 0;
     try {
       const devices = await getAccountDevices(authorization);
       devicesCount = devices?.accountDevices?.length || 0;
-      console.log('Devices found:', devicesCount);
     } catch (e) {
       console.log('Could not fetch devices count');
     }
 
-    // ШАГ 4: Отправляем DELETE запрос на выход
-    // Используем authorization.accessToken как CAM token
+    // ШАГ 4: Отправляем DELETE запрос с правильным токеном
     const logoutResponse = await fetch(`https://ca.account.sony.com/api/v1/user/accounts/${accountId}/auth/sessions`, {
       method: 'DELETE',
       headers: {
-        'Authorization': `Bearer ${authorization.accessToken}`,
+        'Authorization': `Bearer ${accessToken}`,
         'Accept': 'application/json',
         'Content-Type': 'application/json'
       }
@@ -223,15 +242,4 @@ app.post("/api/logout-all", async (req, res) => {
       error: e?.message || "Unknown error"
     });
   }
-});
-
-// ✅ ТЕСТОВЫЙ ЭНДПОИНТ
-app.get("/api/test", (req, res) => {
-  res.json({ ok: true, message: "Server is running" });
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
-  console.log(`📝 Test endpoint: http://localhost:${PORT}/api/test`);
 });
