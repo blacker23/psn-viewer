@@ -163,8 +163,6 @@ app.listen(PORT, () => {
 
 /**
  * Получает CAM session token (для DELETE запроса) - Flow A
- * @param {string} npsso
- * @returns {Promise<string>}
  */
 async function getCamSessionToken(npsso) {
   const params = new URLSearchParams({
@@ -178,83 +176,122 @@ async function getCamSessionToken(npsso) {
     method: 'GET',
     headers: {
       'Cookie': `npsso=${npsso}`,
-      'Accept': 'application/json',
-      'User-Agent': 'PSN-Viewer/1.0'
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     },
     redirect: 'manual'
   });
 
   const location = response.headers.get('location');
-  if (!location) {
-    throw new Error('Не удалось получить CAM token: нет редиректа');
-  }
-
+  if (!location) throw new Error('Нет редиректа для CAM token');
+  
   const match = location.match(/#access_token=([^&]+)/);
-  if (!match) {
-    throw new Error('Не удалось извлечь CAM token из URL');
-  }
-
+  if (!match) throw new Error('Не удалось извлечь CAM token');
+  
   return match[1];
 }
 
 /**
- * Получает accountUuid аккаунта - Flow B (исправленная версия)
- * @param {string} npsso
- * @returns {Promise<string>}
+ * Получает accountUuid через прямой запрос к API (исправлено!)
  */
 async function getAccountUuid(npsso) {
-  // 1. Меняем NPSSO на access code (используем существующую функцию)
-  const accessCode = await exchangeNpssoForCode(npsso);
-  
-  // 2. Меняем code на auth tokens (используем существующую функцию)
-  const authorization = await exchangeAccessCodeForAuthTokens(accessCode);
-  
-  // 3. Получаем информацию об аккаунте через fetch
-  const response = await fetch('https://accounts.api.playstation.com/v1/accounts/me', {
+  // 1. Сначала получаем authorization code через прямой запрос
+  const codeResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/authorize', {
+    method: 'POST',
     headers: {
-      'Authorization': `Bearer ${authorization.accessToken}`
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': `npsso=${npsso}`,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    },
+    body: new URLSearchParams({
+      client_id: 'ac8f2514-272d-4eae-8292-ad3daab49da9', // ID для мобильного приложения
+      scope: 'psn:mobile.v2',
+      redirect_uri: 'com.playstation.PlayStationApp://redirect'
+    })
+  });
+
+  const codeData = await codeResponse.json();
+  if (!codeData.code) {
+    throw new Error('Не удалось получить authorization code');
+  }
+
+  // 2. Обмениваем code на access token
+  const tokenResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': 'Basic YWM4ZjI1MTQtMjcyZC00ZWFlLTgyOTItYWQzZGFhYjQ5ZGE5OnBzcHJpbmNpcGFs', // фиксированный ключ
+    },
+    body: new URLSearchParams({
+      code: codeData.code,
+      redirect_uri: 'com.playstation.PlayStationApp://redirect',
+      grant_type: 'authorization_code'
+    })
+  });
+
+  const tokenData = await tokenResponse.json();
+  
+  // 3. Получаем информацию об аккаунте
+  const accountResponse = await fetch('https://accounts.api.playstation.com/v1/accounts/me', {
+    headers: {
+      'Authorization': `Bearer ${tokenData.access_token}`
     }
   });
 
-  if (!response.ok) {
-    throw new Error(`Не удалось получить данные аккаунта: ${response.status}`);
-  }
-
-  const accountData = await response.json();
-  // Проверяем разные возможные пути к UUID
-  return accountData.accountUuid || accountData.uuid || accountData.id;
+  const accountData = await accountResponse.json();
+  return accountData.accountUuid;
 }
 
 /**
- * Получает список устройств (клиентов) аккаунта (исправленная версия)
- * @param {string} npsso
- * * @returns {Promise<Array>}
+ * Получает список устройств через прямой запрос
  */
 async function getUserClients(npsso) {
   try {
-    const accessCode = await exchangeNpssoForCode(npsso);
-    const authorization = await exchangeAccessCodeForAuthTokens(accessCode);
-    
-    const response = await fetch('https://cloudassistednavigation.api.playstation.com/v2/users/me/clients', {
+    // Получаем access token тем же способом
+    const codeResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/authorize', {
+      method: 'POST',
       headers: {
-        'Authorization': `Bearer ${authorization.accessToken}`
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Cookie': `npsso=${npsso}`,
+      },
+      body: new URLSearchParams({
+        client_id: 'ac8f2514-272d-4eae-8292-ad3daab49da9',
+        scope: 'psn:mobile.v2',
+        redirect_uri: 'com.playstation.PlayStationApp://redirect'
+      })
+    });
+
+    const codeData = await codeResponse.json();
+    
+    const tokenResponse = await fetch('https://ca.account.sony.com/api/v1/oauth/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': 'Basic YWM4ZjI1MTQtMjcyZC00ZWFlLTgyOTItYWQzZGFhYjQ5ZGE5OnBzcHJpbmNpcGFs',
+      },
+      body: new URLSearchParams({
+        code: codeData.code,
+        redirect_uri: 'com.playstation.PlayStationApp://redirect',
+        grant_type: 'authorization_code'
+      })
+    });
+
+    const tokenData = await tokenResponse.json();
+    
+    const clientsResponse = await fetch('https://cloudassistednavigation.api.playstation.com/v2/users/me/clients', {
+      headers: {
+        'Authorization': `Bearer ${tokenData.access_token}`
       }
     });
 
-    if (!response.ok) {
-      console.log('Clients fetch error:', response.status);
-      return [];
-    }
-
-    const data = await response.json();
-    return data.clients || data.accountDevices || [];
+    const clientsData = await clientsResponse.json();
+    return clientsData.clients || [];
   } catch (e) {
-    console.log('Error fetching clients:', e.message);
+    console.log('Ошибка получения устройств:', e.message);
     return [];
   }
 }
 
-// --- Новый эндпоинт (без изменений, но использует исправленные функции) ---
+// --- Обновленный эндпоинт ---
 app.post("/api/logout-all", async (req, res) => {
   try {
     const { npsso } = req.body;
@@ -263,19 +300,22 @@ app.post("/api/logout-all", async (req, res) => {
       return res.status(400).json({ ok: false, error: "NPSSO required" });
     }
 
-    // Шаг 1: Получаем список устройств ДО выхода (для лога)
-    const clientsBefore = await getUserClients(npsso);
+    console.log('Начинаем процесс выхода...');
     
-    // Шаг 2: Параллельно получаем CAM token и accountUuid
-    const [camToken, accountUuid] = await Promise.all([
-      getCamSessionToken(npsso),
-      getAccountUuid(npsso)
-    ]);
-
-    console.log('CAM Token получен, длина:', camToken?.length);
+    // Получаем список устройств
+    const clientsBefore = await getUserClients(npsso);
+    console.log('Устройств найдено:', clientsBefore.length);
+    
+    // Получаем CAM token и accountUuid
+    console.log('Получаем CAM token...');
+    const camToken = await getCamSessionToken(npsso);
+    console.log('CAM token получен');
+    
+    console.log('Получаем Account UUID...');
+    const accountUuid = await getAccountUuid(npsso);
     console.log('Account UUID:', accountUuid);
 
-    // Шаг 3: DELETE запрос на сброс всех сессий
+    // Отправляем DELETE запрос
     const logoutResponse = await fetch(`https://ca.account.sony.com/api/v1/user/accounts/${accountUuid}/auth/sessions`, {
       method: 'DELETE',
       headers: {
@@ -285,28 +325,18 @@ app.post("/api/logout-all", async (req, res) => {
       }
     });
 
-    const responseData = await logoutResponse.text();
-    let jsonResponse = {};
-    try {
-      jsonResponse = JSON.parse(responseData);
-    } catch {
-      // Если не JSON, пробуем использовать текст
-      jsonResponse = { message: responseData };
-    }
-
     if (logoutResponse.ok) {
       res.json({
         ok: true,
         message: "✅ Выход на всех устройствах выполнен",
-        clientsBefore: clientsBefore.length,
-        details: jsonResponse
+        clientsBefore: clientsBefore.length
       });
     } else {
+      const errorText = await logoutResponse.text();
       res.status(logoutResponse.status).json({
         ok: false,
-        error: jsonResponse.error || jsonResponse.message || "Ошибка при выходе",
-        http_code: logoutResponse.status,
-        details: jsonResponse
+        error: `Ошибка ${logoutResponse.status}: ${errorText}`,
+        http_code: logoutResponse.status
       });
     }
 
@@ -314,7 +344,7 @@ app.post("/api/logout-all", async (req, res) => {
     console.error("LOGOUT ALL ERROR:", e);
     res.status(500).json({
       ok: false,
-      error: e?.message || "Неизвестная ошибка при выходе"
+      error: e?.message || "Неизвестная ошибка"
     });
   }
 });
