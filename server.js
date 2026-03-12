@@ -3,14 +3,13 @@ import cors from "cors";
 import {
   exchangeNpssoForAccessCode,
   exchangeAccessCodeForAuthTokens,
+  exchangeNpssoForCode,        // этот уже есть в psn-api
   getUserTrophyProfileSummary,
   getProfileFromAccountId,
   getProfileFromUserName,
   getBasicPresence,
   getAccountDevices,
-  getPurchasedGames,
-  exchangeNpssoForCode,
-  exchangeCodeForTokens
+  getPurchasedGames
 } from "psn-api";
 
 const app = express();
@@ -160,7 +159,7 @@ app.listen(PORT, () => {
 });
 
 
-// --- Новые функции для выхода ---
+// --- Исправленные функции для выхода ---
 
 /**
  * Получает CAM session token (для DELETE запроса) - Flow A
@@ -172,7 +171,7 @@ async function getCamSessionToken(npsso) {
     client_id: 'dfaa38ee-6f41-48c5-908c-2a338a183121',
     response_type: 'token',
     scope: 'oauth:manage_user_auth_sessions',
-    redirect_uri: 'com.scee.psxandroid://redirect' // Редирект для мобильного приложения
+    redirect_uri: 'com.scee.psxandroid://redirect'
   });
 
   const response = await fetch(`https://ca.account.sony.com/api/authz/v3/oauth/authorize?${params.toString()}`, {
@@ -182,16 +181,14 @@ async function getCamSessionToken(npsso) {
       'Accept': 'application/json',
       'User-Agent': 'PSN-Viewer/1.0'
     },
-    redirect: 'manual' // Важно! Не следовать редиректу автоматически
+    redirect: 'manual'
   });
 
-  // Sony ответит редиректом (302) с access_token в фрагменте URL
   const location = response.headers.get('location');
   if (!location) {
     throw new Error('Не удалось получить CAM token: нет редиректа');
   }
 
-  // Извлекаем access_token из фрагмента URL (#access_token=XXX)
   const match = location.match(/#access_token=([^&]+)/);
   if (!match) {
     throw new Error('Не удалось извлечь CAM token из URL');
@@ -201,18 +198,18 @@ async function getCamSessionToken(npsso) {
 }
 
 /**
- * Получает accountUuid аккаунта - Flow B
+ * Получает accountUuid аккаунта - Flow B (исправленная версия)
  * @param {string} npsso
  * @returns {Promise<string>}
  */
 async function getAccountUuid(npsso) {
-  // 1. Меняем NPSSO на authorization code
+  // 1. Меняем NPSSO на access code (используем существующую функцию)
   const accessCode = await exchangeNpssoForCode(npsso);
   
-  // 2. Меняем code на mobile access token
-  const authorization = await exchangeCodeForTokens(accessCode);
+  // 2. Меняем code на auth tokens (используем существующую функцию)
+  const authorization = await exchangeAccessCodeForAuthTokens(accessCode);
   
-  // 3. Получаем информацию об аккаунте
+  // 3. Получаем информацию об аккаунте через fetch
   const response = await fetch('https://accounts.api.playstation.com/v1/accounts/me', {
     headers: {
       'Authorization': `Bearer ${authorization.accessToken}`
@@ -224,33 +221,40 @@ async function getAccountUuid(npsso) {
   }
 
   const accountData = await response.json();
-  return accountData.accountUuid; // Убедитесь, что путь верный
+  // Проверяем разные возможные пути к UUID
+  return accountData.accountUuid || accountData.uuid || accountData.id;
 }
 
 /**
- * Получает список устройств (клиентов) аккаунта
+ * Получает список устройств (клиентов) аккаунта (исправленная версия)
  * @param {string} npsso
- * @returns {Promise<Array>}
+ * * @returns {Promise<Array>}
  */
 async function getUserClients(npsso) {
-  const accessCode = await exchangeNpssoForCode(npsso);
-  const authorization = await exchangeCodeForTokens(accessCode);
-  
-  const response = await fetch('https://cloudassistednavigation.api.playstation.com/v2/users/me/clients', {
-    headers: {
-      'Authorization': `Bearer ${authorization.accessToken}`
+  try {
+    const accessCode = await exchangeNpssoForCode(npsso);
+    const authorization = await exchangeAccessCodeForAuthTokens(accessCode);
+    
+    const response = await fetch('https://cloudassistednavigation.api.playstation.com/v2/users/me/clients', {
+      headers: {
+        'Authorization': `Bearer ${authorization.accessToken}`
+      }
+    });
+
+    if (!response.ok) {
+      console.log('Clients fetch error:', response.status);
+      return [];
     }
-  });
 
-  if (!response.ok) {
-    return []; // Если не получилось, просто вернем пустой массив
+    const data = await response.json();
+    return data.clients || data.accountDevices || [];
+  } catch (e) {
+    console.log('Error fetching clients:', e.message);
+    return [];
   }
-
-  const data = await response.json();
-  return data.clients || [];
 }
 
-// --- Новый эндпоинт ---
+// --- Новый эндпоинт (без изменений, но использует исправленные функции) ---
 app.post("/api/logout-all", async (req, res) => {
   try {
     const { npsso } = req.body;
@@ -262,11 +266,14 @@ app.post("/api/logout-all", async (req, res) => {
     // Шаг 1: Получаем список устройств ДО выхода (для лога)
     const clientsBefore = await getUserClients(npsso);
     
-    // Шаг 2: Параллельно получаем CAM token и accountUuid (Flow A и B)
+    // Шаг 2: Параллельно получаем CAM token и accountUuid
     const [camToken, accountUuid] = await Promise.all([
       getCamSessionToken(npsso),
       getAccountUuid(npsso)
     ]);
+
+    console.log('CAM Token получен, длина:', camToken?.length);
+    console.log('Account UUID:', accountUuid);
 
     // Шаг 3: DELETE запрос на сброс всех сессий
     const logoutResponse = await fetch(`https://ca.account.sony.com/api/v1/user/accounts/${accountUuid}/auth/sessions`, {
@@ -283,7 +290,8 @@ app.post("/api/logout-all", async (req, res) => {
     try {
       jsonResponse = JSON.parse(responseData);
     } catch {
-      // Если ответ не JSON, оставляем пустой объект
+      // Если не JSON, пробуем использовать текст
+      jsonResponse = { message: responseData };
     }
 
     if (logoutResponse.ok) {
@@ -296,7 +304,7 @@ app.post("/api/logout-all", async (req, res) => {
     } else {
       res.status(logoutResponse.status).json({
         ok: false,
-        error: jsonResponse.error || "Ошибка при выходе",
+        error: jsonResponse.error || jsonResponse.message || "Ошибка при выходе",
         http_code: logoutResponse.status,
         details: jsonResponse
       });
