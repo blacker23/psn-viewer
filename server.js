@@ -291,7 +291,7 @@ const params = new URLSearchParams({
   client_id: 'dfaa38ee-6f41-48c5-908c-2a338a183121',  // Новый client_id из PSNAWP
   response_type: 'token',
   scope: 'oauth:manage_user_auth_sessions', // Добавил scope из библиотеки
-  redirect_uri: 'ca.account.sony.com/api/authz/v3/oauth/authorize'   // Точный redirect_uri
+  redirect_uri: 'com.scee.psxandroid://redirect'   // Точный redirect_uri
 });
 
   try {
