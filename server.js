@@ -314,7 +314,7 @@ app.post("/api/debug/step1-cam-token", async (req, res) => {
       console.log(`Trying redirect_uri: ${redirectUri}`);
       
       const params = new URLSearchParams({
-        client_id: 'dfaa38ee-6f41-48c5-908c-2a338a183121',
+        client_id: 'ceb3984c-9a09-4bae-8546-428ddbb33fed',
         response_type: 'token',
         scope: 'oauth:manage_user_auth_sessions',
         redirect_uri: redirectUri
