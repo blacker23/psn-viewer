@@ -282,192 +282,50 @@ app.post("/api/logout-all", async (req, res) => {
 // API ЭНДПОИНТЫ ДЛЯ ПОШАГОВОЙ ОТЛАДКИ
 // ============================================
 
-// ШАГ 1: Получение CAM Token (РАСШИРЕННЫЙ ПОИСК)
+// ШАГ 1: Получение CAM Token (ФИНАЛЬНАЯ ВЕРСИЯ, основанная на go-psn-api)
 app.post("/api/debug/step1-cam-token", async (req, res) => {
-  console.log('🔵 Step 1: CAM Token request received');
+  console.log('\n🔵 Step 1 (Flow A): CAM Token request (go-psn-api style)');
+  const { npsso } = req.body;
+
+  const params = new URLSearchParams({
+    client_id: 'dfaa38ee-6f41-48c5-908c-2a338a183121',
+    response_type: 'token',
+    scope: 'oauth:manage_user_auth_sessions',
+    redirect_uri: 'com.playstation.PlayStationApp://redirect' // ТОЧНЫЙ URI ИЗ БИБЛИОТЕКИ
+  });
+
   try {
-    const { npsso } = req.body;
-    
-    if (!npsso) {
-      return res.status(400).json({ success: false, error: "NPSSO required" });
-    }
-
-    // Расширенный список возможных redirect_uri
-    const redirectUris = [
-      'com.scee.psxandroid://redirect',
-      'com.playstation.PlayStationApp://redirect',
-      'com.sony.playstationmobile://redirect',
-      'com.scee.psxandroid://oauth2redirect',
-      'com.playstation.PlayStationApp://oauth2redirect',
-      'https://remote-play.dl.playstation.net/remote-play/redirect.html',
-      'https://my.account.sony.com/redirect',
-      'https://account.sony.com/redirect',
-      'sdkms://redirect',  // Для консолей
-      'psn://redirect',
-      'http://localhost:3000/callback',  // На случай если ожидает web
-      'https://localhost:3000/callback'
-    ];
-
-    const results = [];
-
-    for (const redirectUri of redirectUris) {
-      console.log(`Trying redirect_uri: ${redirectUri}`);
-      
-      const params = new URLSearchParams({
-        client_id: 'ceb3984c-9a09-4bae-8546-428ddbb33fed',
-        response_type: 'token',
-        scope: 'oauth:manage_user_auth_sessions',
-        redirect_uri: redirectUri
-      });
-
-      const response = await fetch(`https://ca.account.sony.com/api/authz/v3/oauth/authorize?${params.toString()}`, {
-        method: 'GET',
-        headers: {
-          'Cookie': `npsso=${npsso}`,
-          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-        },
-        redirect: 'manual'
-      });
-
-      const location = response.headers.get('location');
-      const status = response.status;
-      
-      // Читаем тело ответа для диагностики
-      let body = null;
-      if (!response.ok && response.status !== 302) {
-        try {
-          body = await response.text();
-          body = body.substring(0, 200);
-        } catch {
-          body = 'Could not read body';
-        }
-      }
-      
-      results.push({
-        redirectUri,
-        status,
-        hasLocation: !!location,
-        locationPreview: location ? location.substring(0, 100) + '...' : null,
-        bodyPreview: body
-      });
-
-      // Если нашли location с токеном - успех
-      if (location) {
-        const tokenMatch = location.match(/#access_token=([^&]+)/);
-        if (tokenMatch) {
-          return res.json({
-            success: true,
-            status,
-            workingRedirectUri: redirectUri,
-            token: tokenMatch[1],
-            fullLocation: location
-          });
-        }
-      }
-    }
-
-    // Если ни один не сработал, но может быть другой client_id?
-    // Пробуем альтернативный client_id
-    console.log('Trying alternative client_id...');
-    
-    const altClientIds = [
-      'ac8f2514-272d-4eae-8292-ad3daab49da9',  // mobile app
-      'b6e7e8c8-5b3e-4b8d-8f3c-3f3f3f3f3f3f',  // web app
-      '4e7e8c8-5b3e-4b8d-8f3c-3f3f3f3f3f3f'    // another
-    ];
-
-    for (const clientId of altClientIds) {
-      const params = new URLSearchParams({
-        client_id: clientId,
-        response_type: 'token',
-        scope: 'oauth:manage_user_auth_sessions',
-        redirect_uri: 'com.playstation.PlayStationApp://redirect'
-      });
-
-      const response = await fetch(`https://ca.account.sony.com/api/authz/v3/oauth/authorize?${params.toString()}`, {
-        method: 'GET',
-        headers: {
-          'Cookie': `npsso=${npsso}`,
-          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15'
-        },
-        redirect: 'manual'
-      });
-
-      const location = response.headers.get('location');
-      if (location) {
-        const tokenMatch = location.match(/#access_token=([^&]+)/);
-        if (tokenMatch) {
-          return res.json({
-            success: true,
-            status: response.status,
-            workingRedirectUri: 'com.playstation.PlayStationApp://redirect',
-            workingClientId: clientId,
-            token: tokenMatch[1],
-            fullLocation: location
-          });
-        }
-      }
-    }
-
-    // Отправляем все попытки для анализа
-    res.json({
-      success: false,
-      error: "No working redirect_uri found",
-      attempts: results,
-      message: "Проверьте консоль сервера для детального лога"
+    const response = await fetch(`https://ca.account.sony.com/api/authz/v3/oauth/authorize?${params.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Cookie': `npsso=${npsso}`,
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148', // Точный UA из библиотеки
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Connection': 'keep-alive'
+      },
+      redirect: 'manual'
     });
 
+    const location = response.headers.get('location');
+    console.log('Location header:', location);
+
+    if (!location) {
+      const text = await response.text();
+      return res.json({ success: false, status: response.status, body: text.substring(0, 500) });
+    }
+
+    const tokenMatch = location.match(/#access_token=([^&]+)/);
+    if (!tokenMatch) {
+      return res.json({ success: false, error: 'Token not found in location', location });
+    }
+
+    res.json({ success: true, token: tokenMatch[1] });
+
   } catch (e) {
-    console.error('Step 1 error:', e);
     res.status(500).json({ success: false, error: e.message });
   }
 });
-
-// Тестовый эндпоинт для получения информации о client_id
-app.post("/api/debug/client-info", async (req, res) => {
-  try {
-    const { npsso } = req.body;
-    
-    // Пробуем получить информацию о доступных client_id
-    const clientIds = [
-      'dfaa38ee-6f41-48c5-908c-2a338a183121',
-      'ac8f2514-272d-4eae-8292-ad3daab49da9'
-    ];
-
-    const results = [];
-
-    for (const clientId of clientIds) {
-      const params = new URLSearchParams({
-        client_id: clientId,
-        response_type: 'token',
-        scope: 'oauth:manage_user_auth_sessions psn:mobile.v2',
-        redirect_uri: 'com.playstation.PlayStationApp://redirect'
-      });
-
-      const response = await fetch(`https://ca.account.sony.com/api/authz/v3/oauth/authorize?${params.toString()}`, {
-        method: 'GET',
-        headers: {
-          'Cookie': `npsso=${npsso}`,
-          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15'
-        },
-        redirect: 'manual'
-      });
-
-      results.push({
-        clientId,
-        status: response.status,
-        location: response.headers.get('location'),
-        error: response.status === 400 ? await response.text() : null
-      });
-    }
-
-    res.json(results);
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 // ШАГ 2: Получение accountUuid (ИСПРАВЛЕНО - используем ваш работающий код)
 app.post("/api/debug/step2-account-uuid", async (req, res) => {
   console.log('🔵 Step 2: Account UUID request received');
