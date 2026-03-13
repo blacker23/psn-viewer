@@ -287,12 +287,12 @@ app.post("/api/debug/step1-cam-token", async (req, res) => {
   console.log('\n🔵 Step 1 (Flow A): CAM Token request (go-psn-api style)');
   const { npsso } = req.body;
 
-  const params = new URLSearchParams({
-    client_id: 'dfaa38ee-6f41-48c5-908c-2a338a183121',
-    response_type: 'token',
-    scope: 'oauth:manage_user_auth_sessions',
-    redirect_uri: 'com.playstation.PlayStationApp://redirect' // ТОЧНЫЙ URI ИЗ БИБЛИОТЕКИ
-  });
+const params = new URLSearchParams({
+  client_id: '09515159-7237-4370-9b40-3806e67c0891',  // Новый client_id из PSNAWP
+  response_type: 'token',
+  scope: 'oauth:manage_user_auth_sessions psn:mobile.v2.core', // Добавил scope из библиотеки
+  redirect_uri: 'com.scee.psxandroid.scecompcall://redirect'   // Точный redirect_uri
+});
 
   try {
     const response = await fetch(`https://ca.account.sony.com/api/authz/v3/oauth/authorize?${params.toString()}`, {
